@@ -2,30 +2,11 @@ import React, { useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Center, Environment } from '@react-three/drei';
 import * as THREE from 'three';
-
-interface Vertex {
-    p: number[];
-    n: number[];
-    t: number[];
-}
-
-interface Face {
-    m: number;
-    vs: number[];
-    es: number[];
-}
-
-interface ModelData {
-    vs: Vertex[];
-    fs: Face[];
-}
-
-interface Project {
-    model: ModelData | null;
-}
+import { Project } from './types';
 
 interface Preview3DProps {
     project: Project | null;
+    hoveredEdge?: { id: number } | null;
 }
 
 const Model: React.FC<{ project: Project }> = ({ project }) => {
@@ -99,7 +80,40 @@ const Model: React.FC<{ project: Project }> = ({ project }) => {
     );
 };
 
-export default function Preview3D({ project }: Preview3DProps) {
+// Component to render the highlighted edge in 3D
+const HighlightedEdge: React.FC<{ project: Project; edgeId: number }> = ({ project, edgeId }) => {
+    const geometry = useMemo(() => {
+        if (!project?.model) return null;
+
+        const { vs, es } = project.model;
+        if (!vs || !es) return null;
+
+        const edge = es[edgeId];
+        if (!edge) return null;
+
+        // Get vertex positions from edge
+        const v0 = vs[edge.v0]?.p;
+        const v1 = vs[edge.v1]?.p;
+        if (!v0 || !v1) return null;
+
+        const points = [
+            new THREE.Vector3(v0[0], v0[1], v0[2]),
+            new THREE.Vector3(v1[0], v1[1], v1[2])
+        ];
+
+        return new THREE.BufferGeometry().setFromPoints(points);
+    }, [project, edgeId]);
+
+    if (!geometry) return null;
+
+    return (
+        <lineSegments geometry={geometry}>
+            <lineBasicMaterial color="#f59e0b" linewidth={3} />
+        </lineSegments>
+    );
+};
+
+export default function Preview3D({ project, hoveredEdge }: Preview3DProps) {
     return (
         <div className="w-full h-full bg-slate-900 rounded-lg overflow-hidden relative">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-black/50 text-white text-xs rounded pointer-events-none">
@@ -113,7 +127,12 @@ export default function Preview3D({ project }: Preview3DProps) {
 
                 <Center>
                     {project && project.model ? (
-                        <Model project={project} />
+                        <>
+                            <Model project={project} />
+                            {hoveredEdge && typeof hoveredEdge.id === 'number' && (
+                                <HighlightedEdge project={project} edgeId={hoveredEdge.id} />
+                            )}
+                        </>
                     ) : (
                         <mesh>
                             <boxGeometry args={[1, 1, 1]} />

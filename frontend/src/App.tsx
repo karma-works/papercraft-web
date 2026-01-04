@@ -274,9 +274,11 @@ interface Canvas2DProps {
   onRotateIsland: (id: IslandId, angle: number, center: [number, number]) => Promise<void>;
   onProjectUpdate: (project: Project) => void;
   onError: (msg: string) => void;
+  hoveredEdge: any | null;
+  onHoverEdge: (edge: any | null) => void;
 }
 
-function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
+function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError, hoveredEdge, onHoverEdge }: Canvas2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(2);
@@ -301,7 +303,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
   const [draggedIsland, setDraggedIsland] = useState<DraggedIslandState | null>(null);
   const [hoveredIsland, setHoveredIsland] = useState<number | null>(null);
-  const [hoveredEdge, setHoveredEdge] = useState<any | null>(null); // Edge ID type depends on backend
+  // hoveredEdge state is now lifted to parent App component
 
   // Pointer tracking for multi-touch
   const pointersRef = useRef<Map<number, { x: number, y: number }>>(new Map());
@@ -412,7 +414,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
         console.log("Sending action to backend:", actionData);
         const updatedProject = await api.performAction(actionData);
         onProjectUpdate(updatedProject);
-        setHoveredEdge(null);
+        onHoverEdge(null);
       } else {
         console.log("No action determined for this mode/edge combination.");
       }
@@ -597,10 +599,10 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
       const edgeHit = hitTestEdge(modelX, modelY);
       if (edgeHit) {
-        setHoveredEdge(edgeHit.edge); // Use edge object or ID depending on type. edgeHit has edgeId and edge.
+        onHoverEdge(edgeHit.edge); // Use edge object or ID depending on type. edgeHit has edgeId and edge.
         setHoveredIsland(null); // Clear island hover to avoid confusion
       } else {
-        setHoveredEdge(null);
+        onHoverEdge(null);
         const island = hitTest(x, y); // Use screen coordinates for island hitTest
         setHoveredIsland(island ? island.id.idx : null);
       }
@@ -967,6 +969,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [hoveredEdge, setHoveredEdge] = useState<any | null>(null);
 
   // Check backend status on mount
   useEffect(() => {
@@ -1147,7 +1150,7 @@ export default function App() {
               <div className="preview-pane">
                 {/* 3D Preview */}
                 <div className="preview-3d-container">
-                  <Preview3D project={project} />
+                  <Preview3D project={project} hoveredEdge={hoveredEdge} />
                 </div>
               </div>
               <div className="canvas-pane">
@@ -1161,6 +1164,8 @@ export default function App() {
                   onRotateIsland={handleRotateIsland}
                   onProjectUpdate={(p) => setProject(p)}
                   onError={(msg) => setError(msg)}
+                  hoveredEdge={hoveredEdge}
+                  onHoverEdge={setHoveredEdge}
                 />
               </div>
             </>
