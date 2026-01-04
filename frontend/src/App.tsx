@@ -209,7 +209,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           <Link2 size={18} />
         </button>
       </div>
-      <div className="toolbar-group">
+      <div className="toolbar-group" title="Toggle Flaps (F)">
         <ToggleButton
           className={`toolbar-btn ${viewOptions.showFlaps ? 'active' : ''}`}
           isSelected={viewOptions.showFlaps}
