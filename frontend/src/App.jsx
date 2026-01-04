@@ -3,11 +3,12 @@ import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
   ZoomIn, ZoomOut, Maximize2, Box, Grid3X3,
-  MousePointer2, Hand
+  MousePointer2, Hand, Undo2, Redo2
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
 import SettingsDialog from './SettingsDialog';
+import useHistory from './hooks/useHistory';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -111,9 +112,28 @@ function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }) {
 }
 
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport }) {
+// Toolbar Component
+function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, canUndo, canRedo }) {
   return (
     <div className="toolbar">
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn"
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo2 size={18} style={{ opacity: canUndo ? 1 : 0.3 }} />
+        </button>
+        <button
+          className="toolbar-btn"
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          <Redo2 size={18} style={{ opacity: canRedo ? 1 : 0.3 }} />
+        </button>
+      </div>
       <div className="toolbar-group">
         <button
           className={`toolbar-btn ${mode === 'select' ? 'active' : ''}`}
@@ -778,7 +798,7 @@ function EmptyState({ icon: Icon, message }) {
 // Main App Component
 export default function App() {
   const [status, setStatus] = useState({ connected: false, hasModel: false });
-  const [project, setProject] = useState(null);
+  const [project, setProject, undo, redo, canUndo, canRedo, resetProject] = useHistory(null);
   const [mode, setMode] = useState('select');
   const [selectedIslands, setSelectedIslands] = useState([]);
   const [viewOptions, setViewOptions] = useState({
@@ -797,7 +817,7 @@ export default function App() {
         setStatus({ connected: true, hasModel: data.has_model });
         if (data.has_model && !project) {
           const projectData = await api.getProject();
-          setProject(projectData);
+          resetProject(projectData);
         }
       } catch (err) {
         setStatus({ connected: false, hasModel: false });
@@ -816,7 +836,7 @@ export default function App() {
     try {
       await api.uploadModel(file);
       const projectData = await api.getProject();
-      setProject(projectData);
+      resetProject(projectData);
       setStatus(s => ({ ...s, hasModel: true }));
       setSelectedIslands([]);
     } catch (err) {
@@ -882,6 +902,16 @@ export default function App() {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT') return;
 
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
       switch (e.key.toLowerCase()) {
         case 'v': setMode('select'); break;
         case 'h': setMode('pan'); break;
@@ -935,6 +965,10 @@ export default function App() {
             onViewOptionChange={handleViewOptionChange}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onExport={handleExport}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={canUndo}
+            canRedo={canRedo}
           />
         </div>
 
