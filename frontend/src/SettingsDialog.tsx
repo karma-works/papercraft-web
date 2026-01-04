@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Button, Dialog, DialogTrigger, Heading, Modal, TextField, Label, Input, Checkbox } from 'react-aria-components';
-import { Settings, X } from 'lucide-react';
-import * as api from './api/client';
 
-export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }) {
-    const [formData, setFormData] = useState(null);
+import { useState, useEffect } from 'react';
+import { Button, Dialog, DialogTrigger, Heading, Modal, Label, Input, Checkbox } from 'react-aria-components';
+import { X } from 'lucide-react';
+import { SettingsOptions } from './types';
+
+interface SettingsDialogProps {
+    options: SettingsOptions | null;
+    onSave: (options: SettingsOptions) => void;
+    isOpen: boolean;
+    onOpenChange: (isOpen: boolean) => void;
+}
+
+export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }: SettingsDialogProps) {
+    const [formData, setFormData] = useState<SettingsOptions | null>(null);
 
     useEffect(() => {
         if (options && isOpen) {
@@ -14,44 +22,49 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
 
     if (!formData) return null;
 
-    const handleChange = (key, value) => {
-        setFormData(prev => ({ ...prev, [key]: value }));
+    const handleChange = (key: keyof SettingsOptions, value: any) => {
+        setFormData(prev => prev ? ({ ...prev, [key]: value }) : null);
     };
 
-    const handleNestedChange = (parent, key, value) => {
+    const handleNestedChange = (parent: keyof SettingsOptions, key: number, value: string) => {
         setFormData(prev => {
+            if (!prev) return null;
             const next = { ...prev };
-            if (Array.isArray(next[parent])) {
-                const arr = [...next[parent]];
+            const parentVal = next[parent];
+            if (Array.isArray(parentVal)) {
+                const arr = [...parentVal];
                 // Special handling for page_size array or margin tuple
                 // Assuming direct index mapping for simplified UI
                 // But page_size is [w, h].
                 // Margin is [t, l, r, b]
                 arr[key] = parseFloat(value);
-                next[parent] = arr;
+                (next as any)[parent] = arr;
             }
             return next;
         });
     };
 
-    const handleMarginChange = (index, value) => {
+    const handleMarginChange = (index: number, value: string) => {
         setFormData(prev => {
-            const m = [...prev.margin];
+            if (!prev) return null;
+            const m = [...prev.margin] as [number, number, number, number];
             m[index] = parseFloat(value);
             return { ...prev, margin: m };
         });
     };
 
-    const handleSizeChange = (preset) => {
-        let size = [210, 297]; // A4 default
+    const handleSizeChange = (preset: string) => {
+        let size: [number, number] = [210, 297]; // A4 default
         if (preset === 'A4') size = [210, 297];
         if (preset === 'Letter') size = [215.9, 279.4];
-        setFormData(prev => ({ ...prev, page_size: size }));
+        setFormData(prev => prev ? ({ ...prev, page_size: size }) : null);
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
+        if (formData) {
+            onSave(formData);
+        }
         onOpenChange(false);
     };
 
@@ -82,7 +95,7 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                                     <Label>Width (mm)</Label>
                                     <Input
                                         type="number"
-                                        value={formData.page_size[0]}
+                                        value={formData.page_size[0].toString()}
                                         onChange={e => handleNestedChange('page_size', 0, e.target.value)}
                                     />
                                 </div>
@@ -90,7 +103,7 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                                     <Label>Height (mm)</Label>
                                     <Input
                                         type="number"
-                                        value={formData.page_size[1]}
+                                        value={formData.page_size[1].toString()}
                                         onChange={e => handleNestedChange('page_size', 1, e.target.value)}
                                     />
                                 </div>
@@ -99,10 +112,10 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                             <div className="form-group">
                                 <Label>Margins (Top, Left, Right, Bottom)</Label>
                                 <div className="form-row">
-                                    <Input type="number" value={formData.margin[0]} onChange={e => handleMarginChange(0, e.target.value)} title="Top" />
-                                    <Input type="number" value={formData.margin[1]} onChange={e => handleMarginChange(1, e.target.value)} title="Left" />
-                                    <Input type="number" value={formData.margin[2]} onChange={e => handleMarginChange(2, e.target.value)} title="Right" />
-                                    <Input type="number" value={formData.margin[3]} onChange={e => handleMarginChange(3, e.target.value)} title="Bottom" />
+                                    <Input type="number" value={formData.margin[0].toString()} onChange={e => handleMarginChange(0, e.target.value)} title="Top" />
+                                    <Input type="number" value={formData.margin[1].toString()} onChange={e => handleMarginChange(1, e.target.value)} title="Left" />
+                                    <Input type="number" value={formData.margin[2].toString()} onChange={e => handleMarginChange(2, e.target.value)} title="Right" />
+                                    <Input type="number" value={formData.margin[3].toString()} onChange={e => handleMarginChange(3, e.target.value)} title="Bottom" />
                                 </div>
                             </div>
                         </div>
@@ -128,7 +141,7 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                                     <Label>Width (mm)</Label>
                                     <Input
                                         type="number"
-                                        value={formData.tab_width || 5}
+                                        value={(formData.tab_width || 5).toString()}
                                         onChange={e => handleChange('tab_width', parseFloat(e.target.value))}
                                     />
                                 </div>
@@ -136,7 +149,7 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                                     <Label>Angle (deg)</Label>
                                     <Input
                                         type="number"
-                                        value={formData.tab_angle || 45}
+                                        value={(formData.tab_angle || 45).toString()}
                                         onChange={e => handleChange('tab_angle', parseFloat(e.target.value))}
                                     />
                                 </div>

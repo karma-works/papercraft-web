@@ -104,8 +104,10 @@ async fn perform_action(
 ) -> Result<Json<RenderablePapercraft>, StatusCode> {
     let mut state = state.lock().unwrap();
     if let Some(ref mut project) = state.project {
+        println!("Received action");
         match action {
             Action::ToggleFlap { edge, action } => {
+                println!("Action: ToggleFlap");
                 project.edge_toggle_flap(edge, action);
             }
             Action::Cut { edge, offset } => {
@@ -115,8 +117,12 @@ async fn perform_action(
                 project.edge_join(edge, priority_face);
             }
             Action::MoveIsland { island, delta } => {
+                println!("Action: MoveIsland delta={:?}", delta);
                 if let Some(island) = project.island_by_key_mut(island) {
+                    println!("Found island, translating...");
                     island.translate(Vector2::new(delta[0], delta[1]));
+                } else {
+                    println!("Island not found!");
                 }
             }
             Action::RotateIsland { island, angle, center } => {

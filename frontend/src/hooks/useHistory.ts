@@ -2,13 +2,21 @@ import { useState, useCallback } from 'react';
 
 /**
  * A hook to manage state with undo/redo capability.
- * @param {any} initialState 
+ * @param {T} initialState 
  * @returns [state, setState, undo, redo, canUndo, canRedo, resetState]
  */
-export default function useHistory(initialState) {
-    const [past, setPast] = useState([]);
-    const [present, setPresent] = useState(initialState);
-    const [future, setFuture] = useState([]);
+export default function useHistory<T>(initialState: T): [
+    T,
+    (newState: T, replace?: boolean) => void,
+    () => void,
+    () => void,
+    boolean,
+    boolean,
+    (newState: T) => void
+] {
+    const [past, setPast] = useState<T[]>([]);
+    const [present, setPresent] = useState<T>(initialState);
+    const [future, setFuture] = useState<T[]>([]);
 
     const canUndo = past.length > 0;
     const canRedo = future.length > 0;
@@ -33,7 +41,7 @@ export default function useHistory(initialState) {
         setFuture(newFuture);
     }, [past, present, future, canRedo]);
 
-    const update = useCallback((newPresent, replace = false) => {
+    const update = useCallback((newPresent: T, replace = false) => {
         if (replace) {
             setPresent(newPresent);
             return;
@@ -43,7 +51,7 @@ export default function useHistory(initialState) {
         setFuture([]); // Clear future on new change
     }, [past, present]);
 
-    const reset = useCallback((newState) => {
+    const reset = useCallback((newState: T) => {
         setPast([]);
         setPresent(newState);
         setFuture([]);

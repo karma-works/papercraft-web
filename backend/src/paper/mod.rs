@@ -14,7 +14,7 @@ use serde::{
 use tr::tr;
 
 pub fn signature() -> String {
-    tr!("Created with Papercraft. https://github.com/rodrigorc/papercraft")
+    tr!("Created with Papercraft Web. https://github.com/karma-works/papercraft-web")
 }
 
 mod ser {
