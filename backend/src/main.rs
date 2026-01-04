@@ -193,7 +193,21 @@ async fn export_file(
 
 #[tokio::main]
 async fn main() {
-    let state = Arc::new(Mutex::new(AppState { project: None }));
+    let mut initial_project = None;
+    let sphere_path = std::path::Path::new("examples/sphere.pdo");
+    if sphere_path.exists() {
+        println!("Loading default model: {:?}", sphere_path);
+        match paper::import::import_model_file(sphere_path) {
+            Ok((project, _)) => {
+                initial_project = Some(project);
+            }
+            Err(e) => {
+                eprintln!("Failed to load default model: {}", e);
+            }
+        }
+    }
+
+    let state = Arc::new(Mutex::new(AppState { project: initial_project }));
 
     let app = Router::new()
         .route("/api/status", get(get_status))
