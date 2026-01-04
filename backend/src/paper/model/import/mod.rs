@@ -140,7 +140,7 @@ pub fn import_model_file_priv(file_name: &Path) -> Result<(Papercraft, bool)> {
             Papercraft::load(f)
                 .with_context(|| format!("Error reading Papercraft file {}", file_name.display()))?
         }
-        "pdo" => {
+        "pdo" | "pbo" => {
             let importer = pepakura::PepakuraImporter::new(f)
                 .with_context(|| format!("Error reading Pepakura file {}", file_name.display()))?;
             Papercraft::import(importer)

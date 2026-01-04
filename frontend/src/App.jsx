@@ -49,7 +49,7 @@ function FileUpload({ onUpload, isLoading, compact = false }) {
   if (compact) {
     return (
       <FileTrigger
-        acceptedFileTypes={['.obj', '.stl', '.pdo']}
+        acceptedFileTypes={['.obj', '.stl', '.pdo', '.pbo']}
         onSelect={(files) => {
           const file = files?.[0];
           if (file) onUpload(file);
@@ -79,7 +79,7 @@ function FileUpload({ onUpload, isLoading, compact = false }) {
         or click to browse (OBJ, STL, PDO)
       </div>
       <FileTrigger
-        acceptedFileTypes={['.obj', '.stl', '.pdo']}
+        acceptedFileTypes={['.obj', '.stl', '.pdo', '.pbo']}
         onSelect={(files) => {
           const file = files?.[0];
           if (file) onUpload(file);
@@ -240,7 +240,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   // Get island data
   const islands = useMemo(() => {
     if (!project?.islands) return [];
-    return project.islands;
+    return Object.entries(project.islands).map(([id, data]) => ({ id, ...data }));
   }, [project]);
 
   // Calculate canvas dimensions
