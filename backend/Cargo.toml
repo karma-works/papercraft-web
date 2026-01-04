@@ -1,0 +1,68 @@
+[package]
+name = "papercraft-backend"
+version = "2.10.0"
+authors = ["Rodrigo Rivas Costa <rodrigorivascosta@gmail.com>"]
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rodrigorc/papercraft"
+description = "Papercraft is a tool to unwrap 3D models"
+keywords = ["papercraft", "handcraft"]
+
+[profile.release]
+strip = "symbols"
+lto = true
+
+[features]
+# In linux this is basically free, but in Windows this adds a bunch of dependencies
+# for little gain.
+freetype=["easy-imgui-window/freetype"]
+
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zip]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+
+[build-dependencies]
+include-po = "0.2"
+
+[dependencies]
+cgmath = { version = "0.18", features = ["mint", "serde"] }
+anyhow = "1"
+base64 = "0.22"
+slotmap = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = "6.0.0"
+bitflags = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+clap = { version = "4", features = ["derive", "cargo"] }
+log = "0.4"
+env_logger = "0.11"
+flate2 = "1"
+fxhash = "0.2"
+signal-hook = "0.3"
+opener = { version = "0.8", default-features = false }
+maybe-owned = { version = "0.3", features = ["serde"] }
+lazy_static = "1"
+tr = { version = "0.1.10", default-features = false }
+
+lopdf = "0.38"
+time = { version = "0.3", features = ["local-offset"] }
+
+easy-imgui-window =  "0.20.0"
+easy-imgui-filechooser = { version = "0.3", features = ["tr"] }
+
+sys-locale = "0.3"
+directories = "6"
+rayon = "1"
+cancel-rw = "0.1"
+glow = "0.13"
+
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls"] }
+
+
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }

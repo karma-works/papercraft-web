@@ -1,14 +1,22 @@
 mod craft;
 mod model;
+mod types;
 
 pub use craft::*;
 pub use model::*;
+pub use types::*;
 
 use crate::util_3d::*;
 use serde::{
     Deserialize, Serialize,
     ser::{SerializeSeq, SerializeStruct},
 };
+use tr::tr;
+
+pub fn signature() -> String {
+    tr!("Created with Papercraft. https://github.com/rodrigorc/papercraft")
+}
+
 mod ser {
     use super::*;
     pub mod vector2 {
@@ -48,40 +56,6 @@ mod ser {
         {
             let data = <[f32; 3]>::deserialize(deserializer)?;
             Ok(Vector3::from(data))
-        }
-    }
-    // Beware! This serializes pnly the values, not the keys.
-    pub mod slot_map {
-        use super::*;
-        pub fn serialize<K, V, S>(
-            data: &slotmap::SlotMap<K, V>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-            K: slotmap::Key,
-            V: Serialize,
-        {
-            let mut seq = serializer.serialize_seq(Some(data.len()))?;
-            for (_, d) in data {
-                seq.serialize_element(d)?;
-            }
-            seq.end()
-        }
-        pub fn deserialize<'de, D, K, V>(
-            deserializer: D,
-        ) -> Result<slotmap::SlotMap<K, V>, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-            K: slotmap::Key,
-            V: Deserialize<'de>,
-        {
-            let data = <Vec<V>>::deserialize(deserializer)?;
-            let mut map = slotmap::SlotMap::with_key();
-            for d in data {
-                map.insert(d);
-            }
-            Ok(map)
         }
     }
 }

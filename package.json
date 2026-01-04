@@ -1,0 +1,38 @@
+{
+  "name": "papercraft-web",
+  "version": "1.0.0",
+  "description": "Web-based tool to unwrap 3D models into printable papercraft patterns",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && cargo run",
+    "dev:frontend": "wait-on http://localhost:3000/api/status && cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "test": "npm run test:integration",
+    "test:integration": "node tests/integration.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rodrigorc/papercraft.git"
+  },
+  "keywords": [
+    "papercraft",
+    "3d",
+    "unfolding",
+    "paper",
+    "craft"
+  ],
+  "author": "Rodrigo Rivas Costa",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/rodrigorc/papercraft/issues"
+  },
+  "homepage": "https://github.com/rodrigorc/papercraft#readme",
+  "workspaces": [
+    "frontend"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^9.0.3"
+  }
+}

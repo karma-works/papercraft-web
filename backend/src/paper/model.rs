@@ -12,7 +12,7 @@ use super::{BodyTraverse, EdgeStatus, Island, PaperOptions, traverse_faces_ex};
 
 pub mod import;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Texture {
     file_name: String,
     #[serde(skip)]
@@ -28,7 +28,7 @@ impl Texture {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Model {
     textures: Vec<Texture>,
     vertices: Vec<Vertex>,
@@ -138,12 +138,6 @@ macro_rules! index_type {
                 $name(idx as $inner)
             }
         }
-
-        unsafe impl crate::glr::AttribField for $name {
-            fn detail() -> (usize, u32) {
-                <$inner>::detail()
-            }
-        }
     }
 }
 
@@ -153,7 +147,7 @@ index_type!(pub EdgeIndex: u32);
 index_type!(pub FaceIndex: u32);
 index_type!(pub BodyIndex: u32);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Face {
     #[serde(rename = "m")]
     material: MaterialIndex,
@@ -167,7 +161,7 @@ pub struct Face {
 // the UV.
 // If you want the proper VertexIndex from the POV of a face, use `Face::vertices_with_edges()`.
 // If you just want the position of the edge limits use `Model::edge_pos()`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Edge {
     f0: FaceIndex,
     f1: Option<FaceIndex>,
@@ -212,8 +206,8 @@ pub struct Vertex {
 }
 
 // To check if two faces originate from the same face in an imported model
-#[derive(Debug, PartialEq, Eq)]
-pub struct FaceSource(u32);
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FaceSource(pub u32);
 
 pub struct ImportedModule<I: Importer> {
     pub model: Model,

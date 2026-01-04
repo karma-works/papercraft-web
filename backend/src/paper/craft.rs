@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
 use std::ops::ControlFlow;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
-use crate::util_3d;
-use crate::util_gl::MLine3DStatus;
-use cgmath::{Deg, Rad, prelude::*};
+use anyhow::Result;
+use crate::util_3d::{self, Point2, Vector2, Vector3, Matrix3};
+// use crate::util_gl::MLine3DStatus;
+use cgmath::{Deg, InnerSpace, Rad, prelude::*};
 use easy_imgui_window::easy_imgui::Color;
 use easy_imgui_window::easy_imgui_renderer::easy_imgui_opengl::Rgba;
 use fxhash::{FxHashMap, FxHashSet};
@@ -16,13 +17,14 @@ mod file;
 mod update;
 
 // Which side of a cut will the flap be drawn, compare with face_sign
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FlapSide {
     False,
     True,
     Hidden,
 }
 
+#[derive(serde::Deserialize, Clone, Copy, Debug)]
 pub enum EdgeToggleFlapAction {
     Toggle,
     Hide,
@@ -202,6 +204,7 @@ pub struct LineConfig {
 }
 
 impl LineConfig {
+/*
     pub fn to_3dstatus(&self, def: &MLine3DStatus) -> MLine3DStatus {
         MLine3DStatus {
             thick: self.thick / 2.0,
@@ -209,6 +212,7 @@ impl LineConfig {
             ..*def
         }
     }
+*/
     pub fn rgba(&self) -> Rgba {
         Rgba::new(self.color.r, self.color.g, self.color.b, self.color.a)
     }
@@ -324,7 +328,7 @@ impl Default for PaperOptions {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct PageOffset {
     pub row: i32,
     pub col: i32,
@@ -401,13 +405,12 @@ impl PaperOptions {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Papercraft {
     model: Model,
     #[serde(default)] //TODO: default not actually needed
     options: PaperOptions,
     edges: Vec<EdgeStatus>, //parallel to EdgeIndex
-    #[serde(with = "super::ser::slot_map")]
     islands: SlotMap<IslandKey, Island>,
 
     #[serde(skip)]
@@ -465,30 +468,36 @@ type FlatFaceFlapDimensions = FxHashMap<(FaceIndex, EdgeIndex), FlapGeom>;
 struct Memoization {
     // This depends on the options, because of the scale, but not on the islands,
     // because it is computed as if both faces are joined.
-    face_to_face_edge_matrix: RefCell<FxHashMap<(EdgeIndex, FaceIndex, FaceIndex), Matrix3>>,
+    face_to_face_edge_matrix: Mutex<FxHashMap<(EdgeIndex, FaceIndex, FaceIndex), Matrix3>>,
 
     // This depends on the islands, but not on the options
     // Indexed by FaceIndex
-    island_by_face: RefCell<Vec<IslandKey>>,
+    island_by_face: Mutex<Vec<IslandKey>>,
 
     // This depends on the options and the islands
-    flat_face_flap_dimensions: RefCell<FxHashMap<IslandKey, FlatFaceFlapDimensions>>,
+    flat_face_flap_dimensions: Mutex<FxHashMap<IslandKey, FlatFaceFlapDimensions>>,
 
     // This depends on the islands, but not on the options
-    island_perimeters: RefCell<FxHashMap<IslandKey, Rc<[FlapEdgeData]>>>,
+    island_perimeters: Mutex<FxHashMap<IslandKey, Arc<[FlapEdgeData]>>>,
+}
+
+impl Clone for Memoization {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
 }
 
 impl Memoization {
     fn invalidate_options(&self) {
-        self.face_to_face_edge_matrix.borrow_mut().clear();
-        self.flat_face_flap_dimensions.borrow_mut().clear();
-        self.island_perimeters.borrow_mut().clear();
+        self.face_to_face_edge_matrix.lock().unwrap().clear();
+        self.flat_face_flap_dimensions.lock().unwrap().clear();
+        self.island_perimeters.lock().unwrap().clear();
     }
     fn invalidate_islands(&self, islands: &[IslandKey]) {
-        self.island_by_face.borrow_mut().clear();
+        self.island_by_face.lock().unwrap().clear();
 
-        let mut flat_face_flap_dimensions = self.flat_face_flap_dimensions.borrow_mut();
-        let mut island_perimeters = self.island_perimeters.borrow_mut();
+        let mut flat_face_flap_dimensions = self.flat_face_flap_dimensions.lock().unwrap();
+        let mut island_perimeters = self.island_perimeters.lock().unwrap();
         for island in islands {
             flat_face_flap_dimensions.remove(island);
             island_perimeters.remove(island);
@@ -576,13 +585,14 @@ impl Papercraft {
             mx,
             NormalTraverseFace(self),
             |_, face, mx| {
-                let vs = face.index_vertices().map(|v| {
-                    let normal = self.model.face_plane(face);
-                    mx.transform_point(Point2::from_vec(
-                        normal.project(&self.model[v].pos(), self.options.scale),
-                    ))
-                    .to_vec()
-                });
+                    let vs = face.index_vertices().map(|v| {
+                        let plane = self.model.face_plane(face);
+                        let p: &Vector3 = &self.model[v].pos();
+                        mx.transform_point(Point2::from_vec(
+                            plane.project(p, self.options.scale),
+                        ))
+                        .to_vec()
+                    });
                 vx.extend(vs);
                 ControlFlow::Continue(())
             },
@@ -623,7 +633,7 @@ impl Papercraft {
     }
     pub fn island_by_face(&self, i_face: FaceIndex) -> IslandKey {
         // Try to use a memoized value
-        let mut memo = self.memo.island_by_face.borrow_mut();
+        let mut memo = self.memo.island_by_face.lock().unwrap();
         if memo.is_empty() {
             self.rebuild_island_by_face(&mut memo);
         }
@@ -898,7 +908,7 @@ impl Papercraft {
     }
     pub fn face_to_face_edge_matrix(&self, edge: &Edge, face_a: &Face, face_b: &Face) -> Matrix3 {
         // Try to use a memoized value
-        let mut memo = self.memo.face_to_face_edge_matrix.borrow_mut();
+        let mut memo = self.memo.face_to_face_edge_matrix.lock().unwrap();
         use std::collections::hash_map::Entry::*;
 
         let i_edge = self.model.edge_index(edge);
@@ -940,7 +950,7 @@ impl Papercraft {
         i_edge: EdgeIndex,
     ) -> FlapGeom {
         // Try to use a memoized value
-        let mut memo = self.memo.flat_face_flap_dimensions.borrow_mut();
+        let mut memo = self.memo.flat_face_flap_dimensions.lock().unwrap();
         use std::collections::hash_map::Entry::*;
         let i_island = self.island_by_face(i_face_a);
         let island_data = memo.entry(i_island).or_default();
@@ -1415,14 +1425,14 @@ impl Papercraft {
     }
 
     // Returns the island perimeter in paper size, but, beware! with an arbitrary position
-    pub fn island_perimeter(&self, island_key: IslandKey) -> Rc<[FlapEdgeData]> {
-        let mut memo = self.memo.island_perimeters.borrow_mut();
+    pub fn island_perimeter(&self, island_key: IslandKey) -> Arc<[FlapEdgeData]> {
+        let mut memo = self.memo.island_perimeters.lock().unwrap();
         use std::collections::hash_map::Entry::*;
         match memo.entry(island_key) {
-            Occupied(o) => Rc::clone(o.get()),
+            Occupied(o) => Arc::clone(o.get()),
             Vacant(v) => {
                 let value = self.island_perimeter_internal(island_key);
-                Rc::clone(v.insert(value.into()))
+                Arc::clone(v.insert(value.into()))
             }
         }
     }
@@ -1593,7 +1603,7 @@ impl Papercraft {
 }
 
 struct SelfCollisionPerimeter {
-    perimeter: Rc<[FlapEdgeData]>,
+    perimeter: Arc<[FlapEdgeData]>,
     perimeter_egde_base: usize,
     angle_0: (Rad<f32>, usize),
     angle_1: (Rad<f32>, usize),
@@ -1751,7 +1761,7 @@ impl TraverseFacePolicy for BodyTraverse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Island {
     root: FaceIndex,
 

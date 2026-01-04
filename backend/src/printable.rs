@@ -19,11 +19,9 @@ fn file_name_for_page(file_name: &Path, page: u32) -> PathBuf {
 impl GlobalContext {
     pub fn generate_printable(
         &mut self,
-        imgui: &imgui::Context,
         file_name: &Path,
-        file_format: Option<easy_imgui_filechooser::FilterId>,
+        file_format: Option<i32>,
     ) -> Result<()> {
-        use crate::filters;
 
         let res = match (
             file_name
@@ -33,9 +31,8 @@ impl GlobalContext {
             file_format,
         ) {
             (Some("pdf"), _) => self.generate_pdf(file_name),
-            (Some("svg"), Some(filters::SVG_MULTIPAGE)) => self.generate_svg_multipage(file_name),
             (Some("svg"), _) => self.generate_svg(file_name),
-            (Some("png"), _) => self.generate_png(imgui.io().font_atlas(), file_name),
+            // (Some("png"), _) => self.generate_png(imgui.io().font_atlas(), file_name),
             _ => anyhow::bail!(
                 "{}",
                 tr!(
