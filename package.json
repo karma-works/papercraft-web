@@ -9,7 +9,7 @@
     "dev:backend": "cd backend && cargo run",
     "dev:frontend": "wait-on http://localhost:3000/api/status && cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
-    "docs:build": "asciidoctor docs/*.adoc",
+    "docs:build": "asciidoctor docs/*.adoc && mkdir -p frontend/public/docs && cp -r docs/* frontend/public/docs/",
     "test": "npm run test:integration && npm run test:browser",
     "test:integration": "node tests/integration.js",
     "test:browser": "node tests/browser_integration.js"

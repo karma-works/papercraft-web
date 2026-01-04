@@ -3,7 +3,7 @@ import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
   ZoomIn, ZoomOut, Maximize2, Box,
-  MousePointer2, Hand, Undo2, Redo2
+  MousePointer2, Hand, Undo2, Redo2, HelpCircle
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
@@ -1078,7 +1078,14 @@ export default function App() {
           <FileUpload onUpload={handleUpload} isLoading={isLoading} compact />
           <StatusIndicator connected={status.connected} hasModel={status.hasModel} />
         </div>
-        <div className="header-right">
+        <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            className="toolbar-btn"
+            onClick={() => window.open('/docs/index.html', '_blank')}
+            title="Open Documentation"
+          >
+            <HelpCircle size={20} />
+          </button>
         </div>
       </header>
 

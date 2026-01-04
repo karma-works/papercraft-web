@@ -1,0 +1,29 @@
+= Papercraft Web Documentation
+:toc: left
+:imagesdir: images
+
+Welcome to the Papercraft Web documentation. This tool allows you to unwrap 3D models into printable papercraft patterns.
+
+== UI Features
+
+=== Join Edges
+The **Join Edges** tool (keyboard shortcut: `J`) allows you to merge two separate edges that belong to the same original 3D mesh edge. This is useful for reducing the number of pieces in your papercraft.
+
+.Joining Edges
+image::join_edges.png[Join Edges Tool]
+
+=== Cut Edge
+The **Cut Edge** tool (keyboard shortcut: `C`) allows you to split a single piece into two along an edge. This helps in unfolding complex shapes that cannot be flattened without additional cuts.
+
+.Cutting an Edge
+image::cut_edge.png[Cut Edge Tool]
+
+=== Toggle Flaps ("F" Button)
+The **Toggle Flaps** button (keyboard shortcut: `F`) toggles the visibility of glue flaps in the 2D view. Glue flaps are the extra tabs used to glue pieces together.
+
+.Flaps Visibility
+image::flaps_toggle.png[Toggle Flaps]
+
+== Getting Started
+
+To get started, simply load a 3D model (OBJ, STL, or PDO) using the **Load Model** button.
