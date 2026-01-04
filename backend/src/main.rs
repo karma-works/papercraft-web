@@ -21,7 +21,7 @@ mod vector_export;
 mod util_3d;
 // mod util_gl;
 
-use paper::{Papercraft, EdgeIndex, EdgeToggleFlapAction, FaceIndex, IslandKey, PaperOptions};
+use paper::{Papercraft, RenderablePapercraft, EdgeIndex, EdgeToggleFlapAction, FaceIndex, IslandKey, PaperOptions};
 use util_3d::Vector2;
 
 struct AppState {
@@ -89,10 +89,10 @@ async fn upload_model(
     Ok(StatusCode::OK.into_response())
 }
 
-async fn get_project(State(state): State<Arc<Mutex<AppState>>>) -> Result<Json<Papercraft>, StatusCode> {
+async fn get_project(State(state): State<Arc<Mutex<AppState>>>) -> Result<Json<RenderablePapercraft>, StatusCode> {
     let state = state.lock().unwrap();
     if let Some(ref project) = state.project {
-        Ok(Json(project.clone()))
+        Ok(Json(project.renderable()))
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -101,7 +101,7 @@ async fn get_project(State(state): State<Arc<Mutex<AppState>>>) -> Result<Json<P
 async fn perform_action(
     State(state): State<Arc<Mutex<AppState>>>,
     Json(action): Json<Action>,
-) -> Result<Json<Papercraft>, StatusCode> {
+) -> Result<Json<RenderablePapercraft>, StatusCode> {
     let mut state = state.lock().unwrap();
     if let Some(ref mut project) = state.project {
         match action {
@@ -128,7 +128,7 @@ async fn perform_action(
                 project.set_options(options, relocate_pieces);
             }
         }
-        Ok(Json(project.clone()))
+        Ok(Json(project.renderable()))
     } else {
         Err(StatusCode::NOT_FOUND)
     }

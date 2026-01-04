@@ -1243,6 +1243,52 @@ impl Papercraft {
         }
     }
 
+    pub fn renderable(&self) -> RenderablePapercraft {
+        let mut islands = Vec::new();
+        let scale = self.options.scale;
+
+        for (id, island) in &self.islands {
+            let mut renderable_faces = Vec::new();
+
+            // We use traverse_faces_ex with island.matrix() to get GLOBAL coordinates (on the paper)
+            let _ = traverse_faces_ex(
+                &self.model,
+                island.root_face(),
+                island.matrix(),
+                NormalTraverseFace(self),
+                |i_face, face, mx| {
+                    let plane = self.model.face_plane(face);
+                    let mut vertices = Vec::new();
+                    for i_vertex in face.index_vertices() {
+                        let vertex = &self.model[i_vertex];
+                        let v2d = plane.project(&vertex.pos(), scale);
+                        // Transform to global space
+                        let p = mx.transform_point(Point2::from_vec(v2d));
+                        vertices.push(Vector2::new(p.x, p.y));
+                    }
+                    renderable_faces.push(RenderableFace {
+                        id: i_face,
+                        vertices,
+                    });
+                    ControlFlow::Continue(())
+                }
+            );
+
+            islands.push(RenderableIsland {
+                id,
+                pos: island.location(),
+                rot: island.rotation().0,
+                faces: renderable_faces,
+            });
+        }
+
+        RenderablePapercraft {
+            model: self.model.clone(),
+            islands,
+            options: self.options.clone(),
+        }
+    }
+
     pub fn traverse_faces<F>(&self, island: &Island, visit_face: F) -> ControlFlow<()>
     where
         F: FnMut(FaceIndex, &Face, &Matrix3) -> ControlFlow<()>,

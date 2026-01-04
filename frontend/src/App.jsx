@@ -194,12 +194,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   const [draggedIsland, setDraggedIsland] = useState(null);
   const [hoveredIsland, setHoveredIsland] = useState(null);
 
-  // Get island data with proper structure
+  // Get island data
   const islands = useMemo(() => {
     if (!project?.islands) return [];
-    return project.islands
-      .map((entry, idx) => ({ ...entry, idx }))
-      .filter(island => island.value !== null);
+    return project.islands;
   }, [project]);
 
   // Calculate canvas dimensions
@@ -217,16 +215,25 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
     const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
 
-    // Convert screen coordinates to model coordinates
-    const modelX = (x - offsetX) / zoom / scale;
-    const modelY = (y - offsetY) / zoom / scale;
+    // Convert screen coordinates to global paper coordinates (pixels)
+    const paperX = (x - offsetX) / zoom;
+    const paperY = (y - offsetY) / zoom;
 
-    // Find island at this position (simple radius check for now)
+    // Scale back to mm for checking against island.pos which is in mm?
+    // Wait, island.pos is in mm.
+    // So convert paper coordinates to mm.
+    const modelX = paperX / scale;
+    const modelY = paperY / scale;
+
+    // Find island at this position
     for (const island of islands) {
-      const islandX = island.value.x;
-      const islandY = island.value.y;
-      const dx = modelX - islandX;
-      const dy = modelY - islandY;
+      // island.pos is {x, y} or [x, y]
+      // Assuming cgmath serializes to {x, y} or [x, y]. Let's handle both.
+      const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
+      const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+
+      const dx = modelX - ix;
+      const dy = modelY - iy;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       // Hit radius of 20mm
@@ -254,14 +261,16 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     if (mode === 'select' || mode === 'move' || mode === 'rotate') {
       if (island) {
-        onSelectIsland(island.idx, e.shiftKey);
+        onSelectIsland(island.id, e.shiftKey);
         if (mode === 'move') {
+          const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
+          const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
           setDraggedIsland({
-            idx: island.idx,
+            id: island.id,
             startX: x,
             startY: y,
-            origX: island.value.x,
-            origY: island.value.y
+            origX: ix,
+            origY: iy
           });
           setIsDragging(true);
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -287,7 +296,9 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         setDraggedIsland(prev => ({
           ...prev,
           currentX: prev.origX + dx,
-          currentY: prev.origY + dy
+          currentY: prev.origY + dy,
+          deltaX: dx,
+          deltaY: dy
         }));
       } else if (dragStart) {
         // Panning
@@ -299,18 +310,16 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     } else {
       // Hover detection
       const island = hitTest(x, y);
-      setHoveredIsland(island?.idx ?? null);
+      setHoveredIsland(island?.id ?? null);
     }
   }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest]);
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e) => {
-    if (draggedIsland && draggedIsland.currentX !== undefined) {
+    if (draggedIsland && draggedIsland.deltaX !== undefined) {
       // Commit the move
-      const dx = draggedIsland.currentX - draggedIsland.origX;
-      const dy = draggedIsland.currentY - draggedIsland.origY;
-      if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
-        await onMoveIsland(draggedIsland.idx, [dx, dy]);
+      if (Math.abs(draggedIsland.deltaX) > 0.1 || Math.abs(draggedIsland.deltaY) > 0.1) {
+        await onMoveIsland(draggedIsland.id, [draggedIsland.deltaX, draggedIsland.deltaY]);
       }
     }
 
@@ -397,74 +406,121 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     ctx.lineWidth = 1;
     ctx.strokeRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
 
+    // Clip to paper
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
+    ctx.clip();
+
     // Draw islands
     islands.forEach((island) => {
-      let islandX = island.value.x;
-      let islandY = island.value.y;
+      const isSelected = selectedIslands.includes(island.id);
+      const isHovered = hoveredIsland === island.id;
+      const isDragged = draggedIsland?.id === island.id;
 
-      // If this island is being dragged, use the dragged position
-      if (draggedIsland?.idx === island.idx && draggedIsland.currentX !== undefined) {
-        islandX = draggedIsland.currentX;
-        islandY = draggedIsland.currentY;
+      // Extract pos and rot
+      const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
+      const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+
+      let tx = 0;
+      let ty = 0;
+      let rot = 0; // island.rot is already applied to vertices in global space?
+      // Wait, vertices are global.
+      // So normally we draw vertices as is.
+      // But if dragged, we translate.
+      // If rotated (interactively), we rotate around center (ix, iy).
+
+      if (isDragged) {
+        tx = draggedIsland.deltaX || 0;
+        ty = draggedIsland.deltaY || 0;
       }
 
-      const x = offsetX + islandX * scale * zoom;
-      const y = offsetY + islandY * scale * zoom;
+      ctx.save();
 
-      const isSelected = selectedIslands.includes(island.idx);
-      const isHovered = hoveredIsland === island.idx;
+      // Transform context for this island?
+      // Since vertices are Global, we only transform if there is a delta.
+      // Vertices are already scaled to mm?
+      // Vertices are in mm (same unit as pos).
+      // We need to scale to pixels: * scale * zoom.
+      // And translate to canvas offset: offsetX, offsetY.
 
-      // Draw island marker
-      const radius = (isSelected ? 12 : 8) * zoom;
+      // Base transform to convert mm to canvas pixels
+      ctx.translate(offsetX, offsetY);
+      ctx.scale(zoom * scale, zoom * scale);
+
+      // Apply drag delta (in mm)
+      if (tx !== 0 || ty !== 0) {
+        ctx.translate(tx, ty);
+      }
+
+      // Draw Faces
+      if (island.faces) {
+        island.faces.forEach(face => {
+          if (!face.vertices || face.vertices.length < 3) return;
+
+          ctx.beginPath();
+          face.vertices.forEach((v, i) => {
+            const vx = v.x !== undefined ? v.x : v[0];
+            const vy = v.y !== undefined ? v.y : v[1];
+            if (i === 0) ctx.moveTo(vx, vy);
+            else ctx.lineTo(vx, vy);
+          });
+          ctx.closePath();
+
+          // Style
+          ctx.fillStyle = isSelected ? '#e0e7ff' : (isHovered ? '#f3f4f6' : '#ffffff');
+          ctx.fill();
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 0.5 / scale; // constant pixel width approx
+          ctx.stroke();
+        });
+      }
+
+      // Draw Island Marker (Center)
+      // Visual aid for selection/rotation center
+      const markerSize = (isSelected ? 6 : 4) / scale;
       ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-
-      // Fill
-      if (isSelected) {
-        ctx.fillStyle = '#6366f1';
-      } else if (isHovered) {
-        ctx.fillStyle = '#a78bfa';
-      } else {
-        ctx.fillStyle = `hsl(${island.idx * 60}, 70%, 60%)`;
-      }
+      ctx.arc(ix, iy, markerSize, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? '#6366f1' : (isHovered ? '#a78bfa' : 'rgba(99, 102, 241, 0.5)');
       ctx.fill();
 
-      // Selection ring
-      if (isSelected) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+      // Rotation Handle
+      if (isSelected && mode === 'rotate') {
+        const handleDist = 15; // mm
+        const handleX = ix + handleDist;
+        const handleY = iy;
+
+        ctx.beginPath();
+        ctx.moveTo(ix, iy);
+        ctx.lineTo(handleX, handleY);
+        ctx.strokeStyle = '#6366f1';
+        // ctx.lineWidth = 1 / scale;
         ctx.stroke();
 
-        // Rotation handle (if in rotate mode)
-        if (mode === 'rotate') {
-          const handleDist = 30 * zoom;
-          const handleX = x + handleDist;
-          const handleY = y;
-
-          ctx.beginPath();
-          ctx.moveTo(x + radius, y);
-          ctx.lineTo(handleX - 6, handleY);
-          ctx.strokeStyle = '#6366f1';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.arc(handleX, handleY, 6, 0, Math.PI * 2);
-          ctx.fillStyle = '#6366f1';
-          ctx.fill();
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
+        ctx.beginPath();
+        ctx.arc(handleX, handleY, 3 / scale, 0, Math.PI * 2);
+        ctx.fillStyle = '#6366f1';
+        ctx.fill();
       }
 
-      // Draw island label
-      ctx.fillStyle = isSelected ? '#ffffff' : '#1e1e2e';
-      ctx.font = `${10 * zoom}px Inter, sans-serif`;
+      // Label
+      ctx.fillStyle = '#1e1e2e';
+      ctx.font = `${5}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String.fromCharCode(65 + (island.idx % 26)), x, y);
+      // Use island.id (index) for label
+      // island.id is likely a slotmap key (struct), so use index/counter logic if simpler?
+      // Or just 'A', 'B' ... 
+      // We don't have linear index in RenderableIsland unless we map it.
+      // But island.id is opaque.
+      // Let's just draw a dot for now or use island.name if available?
+      // We didn't include name in RenderableIsland.
+      // So just a dot.
+
+      ctx.restore();
     });
+
+    ctx.restore(); // Clip restore
 
   }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, pageWidth, pageHeight, scale]);
 

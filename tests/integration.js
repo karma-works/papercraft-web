@@ -90,7 +90,8 @@ async function runTests() {
         const project = await projectResponse.json();
 
         // Find a valid island
-        const validIsland = project.islands.find(i => i.value !== null);
+        // RenderableIsland structure is { id, pos, rot, faces }
+        const validIsland = project.islands[0];
         if (!validIsland) {
             console.log('  (skipping - no valid islands)');
             return;
@@ -101,7 +102,7 @@ async function runTests() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 type: 'moveIsland',
-                island: { idx: 1, version: validIsland.version },
+                island: validIsland.id,
                 delta: [10.0, 10.0],
             }),
         });
