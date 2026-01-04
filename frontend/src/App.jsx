@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
+import SettingsDialog from './SettingsDialog';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -110,7 +111,7 @@ function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }) {
 }
 
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange }) {
+function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport }) {
   return (
     <div className="toolbar">
       <div className="toolbar-group">
@@ -174,7 +175,23 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange }) {
       <div className="toolbar-group">
         <button
           className="toolbar-btn"
-          onClick={() => onModeChange('settings')}
+          onClick={() => onExport('pdf')}
+          title="Export PDF"
+        >
+          <span style={{ fontSize: '10px', fontWeight: 'bold' }}>PDF</span>
+        </button>
+        <button
+          className="toolbar-btn"
+          onClick={() => onExport('svg')}
+          title="Export SVG"
+        >
+          <span style={{ fontSize: '10px', fontWeight: 'bold' }}>SVG</span>
+        </button>
+      </div>
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn"
+          onClick={onOpenSettings}
           title="Settings"
         >
           <Settings size={18} />
@@ -770,6 +787,7 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Check backend status on mount
   useEffect(() => {
@@ -879,6 +897,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Handle options save
+  const handleOptionsSave = async (newOptions) => {
+    try {
+      const action = api.actions.setOptions(newOptions, false);
+      const updatedProject = await api.performAction(action);
+      setProject(updatedProject);
+    } catch (e) {
+      console.error("Failed to save options", e);
+      setError(e.message);
+    }
+  };
+
+  // Handle export
+  const handleExport = (format) => {
+    window.open(`http://localhost:3000/api/export?format=${format}`, '_blank');
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -887,61 +922,59 @@ export default function App() {
           <FileUpload onUpload={handleUpload} isLoading={isLoading} compact />
           <StatusIndicator connected={status.connected} hasModel={status.hasModel} />
         </div>
+        <div className="header-right">
+        </div>
       </header>
 
-      <main className="app-main">
-        {/* Left Panel - 3D View */}
-        <div className="panel">
-          <div className="panel-header">3D Preview</div>
-          <div className="panel-content">
-            {project ? (
-              <Preview3D project={project} />
-            ) : (
-              <FileUpload onUpload={handleUpload} isLoading={isLoading} />
-            )}
-          </div>
+      <div className="main-content">
+        <div className="toolbar-container">
+          <Toolbar
+            mode={mode}
+            onModeChange={setMode}
+            viewOptions={viewOptions}
+            onViewOptionChange={handleViewOptionChange}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onExport={handleExport}
+          />
         </div>
 
-        {/* Right Panel - 2D Papercraft View */}
-        <div className="panel">
-          <div className="panel-header">
-            2D Papercraft
-            {selectedIslands.length > 0 && (
-              <span className="selection-count">
-                {selectedIslands.length} selected
-              </span>
-            )}
-          </div>
-          {project && (
-            <Toolbar
-              mode={mode}
-              onModeChange={setMode}
-              viewOptions={viewOptions}
-              onViewOptionChange={handleViewOptionChange}
-            />
-          )}
-          <div className="panel-content">
-            {project ? (
-              <Canvas2D
-                project={project}
-                mode={mode}
-                selectedIslands={selectedIslands}
-                onSelectIsland={handleSelectIsland}
-                onMoveIsland={handleMoveIsland}
-                onRotateIsland={handleRotateIsland}
+        <div className="content-area">
+          {project ? (
+            <>
+              <div className="preview-pane">
+                {/* 3D Preview */}
+                <div className="preview-3d-container">
+                  <Preview3D project={project} />
+                </div>
+              </div>
+              <div className="canvas-pane">
+                <Canvas2D
+                  project={project}
+                  mode={mode}
+                  selectedIslands={selectedIslands}
+                  onSelectIsland={handleSelectIsland}
+                  onMoveIsland={handleMoveIsland}
+                  onRotateIsland={handleRotateIsland}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="empty-state-container">
+              <EmptyState
+                icon={Box}
+                message="Upload a 3D model to start crafting"
               />
-            ) : (
-              <EmptyState icon={Grid3X3} message="Upload a model to see the unfolded papercraft" />
-            )}
-          </div>
+            </div>
+          )}
         </div>
-      </main>
+      </div>
 
-      {error && (
-        <div className="error-toast" onClick={() => setError(null)}>
-          {error}
-        </div>
-      )}
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        options={project?.options}
+        onSave={handleOptionsSave}
+      />
     </div>
   );
 }

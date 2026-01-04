@@ -1,0 +1,155 @@
+import { useState, useEffect } from 'react';
+import { Button, Dialog, DialogTrigger, Heading, Modal, TextField, Label, Input, Checkbox } from 'react-aria-components';
+import { Settings, X } from 'lucide-react';
+import * as api from './api/client';
+
+export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }) {
+    const [formData, setFormData] = useState(null);
+
+    useEffect(() => {
+        if (options && isOpen) {
+            setFormData(JSON.parse(JSON.stringify(options))); // Deep copy
+        }
+    }, [options, isOpen]);
+
+    if (!formData) return null;
+
+    const handleChange = (key, value) => {
+        setFormData(prev => ({ ...prev, [key]: value }));
+    };
+
+    const handleNestedChange = (parent, key, value) => {
+        setFormData(prev => {
+            const next = { ...prev };
+            if (Array.isArray(next[parent])) {
+                const arr = [...next[parent]];
+                // Special handling for page_size array or margin tuple
+                // Assuming direct index mapping for simplified UI
+                // But page_size is [w, h].
+                // Margin is [t, l, r, b]
+                arr[key] = parseFloat(value);
+                next[parent] = arr;
+            }
+            return next;
+        });
+    };
+
+    const handleMarginChange = (index, value) => {
+        setFormData(prev => {
+            const m = [...prev.margin];
+            m[index] = parseFloat(value);
+            return { ...prev, margin: m };
+        });
+    };
+
+    const handleSizeChange = (preset) => {
+        let size = [210, 297]; // A4 default
+        if (preset === 'A4') size = [210, 297];
+        if (preset === 'Letter') size = [215.9, 279.4];
+        setFormData(prev => ({ ...prev, page_size: size }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(formData);
+        onOpenChange(false);
+    };
+
+    return (
+        <DialogTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
+            <Button className="hidden">Settings</Button>
+            <Modal className="modal-overlay">
+                <Dialog className="modal-content settings-dialog">
+                    <div className="modal-header">
+                        <Heading slot="title">Paper Settings</Heading>
+                        <Button onPress={() => onOpenChange(false)} className="close-btn">
+                            <X size={20} />
+                        </Button>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="settings-form">
+                        <div className="form-section">
+                            <h3>Page Layout</h3>
+                            <div className="form-group">
+                                <Label>Preset Size</Label>
+                                <div className="btn-group">
+                                    <Button type="button" onPress={() => handleSizeChange('A4')} className="btn btn-sm">A4</Button>
+                                    <Button type="button" onPress={() => handleSizeChange('Letter')} className="btn btn-sm">Letter</Button>
+                                </div>
+                            </div>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <Label>Width (mm)</Label>
+                                    <Input
+                                        type="number"
+                                        value={formData.page_size[0]}
+                                        onChange={e => handleNestedChange('page_size', 0, e.target.value)}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <Label>Height (mm)</Label>
+                                    <Input
+                                        type="number"
+                                        value={formData.page_size[1]}
+                                        onChange={e => handleNestedChange('page_size', 1, e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <Label>Margins (Top, Left, Right, Bottom)</Label>
+                                <div className="form-row">
+                                    <Input type="number" value={formData.margin[0]} onChange={e => handleMarginChange(0, e.target.value)} title="Top" />
+                                    <Input type="number" value={formData.margin[1]} onChange={e => handleMarginChange(1, e.target.value)} title="Left" />
+                                    <Input type="number" value={formData.margin[2]} onChange={e => handleMarginChange(2, e.target.value)} title="Right" />
+                                    <Input type="number" value={formData.margin[3]} onChange={e => handleMarginChange(3, e.target.value)} title="Bottom" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="form-section">
+                            <h3>Appearance</h3>
+                            <div className="form-group checkbox-group">
+                                <Checkbox isSelected={formData.texture} onChange={v => handleChange('texture', v)}>
+                                    <div className="checkbox">
+                                        <svg viewBox="0 0 18 18" aria-hidden="true">
+                                            <polyline points="1 9 7 14 15 4" />
+                                        </svg>
+                                    </div>
+                                    Show Textures
+                                </Checkbox>
+                            </div>
+                        </div>
+
+                        <div className="form-section">
+                            <h3>Flaps</h3>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <Label>Width (mm)</Label>
+                                    <Input
+                                        type="number"
+                                        value={formData.tab_width || 5}
+                                        onChange={e => handleChange('tab_width', parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <Label>Angle (deg)</Label>
+                                    <Input
+                                        type="number"
+                                        value={formData.tab_angle || 45}
+                                        onChange={e => handleChange('tab_angle', parseFloat(e.target.value))}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="modal-footer">
+                            <Button type="button" onPress={() => onOpenChange(false)} className="btn btn-secondary">Cancel</Button>
+                            <Button type="submit" className="btn btn-primary">Apply Changes</Button>
+                        </div>
+                    </form>
+                </Dialog>
+            </Modal>
+        </DialogTrigger>
+    );
+}

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "restart": "kill-port 3000 5173 5174 && npm run dev",
     "dev:backend": "cd backend && cargo run",
     "dev:frontend": "wait-on http://localhost:3000/api/status && cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
@@ -33,6 +34,7 @@
   ],
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "kill-port": "^2.0.1",
     "wait-on": "^9.0.3"
   }
 }
