@@ -2,7 +2,7 @@ use axum::{
     routing::{get, post},
     Router,
     Json,
-    extract::{State, Multipart},
+    extract::{Query, State, Multipart},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -17,7 +17,7 @@ mod context;
 pub use context::GlobalContext;
 mod paper;
 mod pdf_metrics;
-// mod printable; // TODO: Refactor to remove UI dependencies
+mod vector_export;
 mod util_3d;
 // mod util_gl;
 
@@ -134,6 +134,54 @@ async fn perform_action(
     }
 }
 
+#[derive(Deserialize)]
+struct ExportParams {
+    format: String,  // "svg" or "pdf"
+    page: Option<u32>,  // For SVG: specific page, None = all pages
+}
+
+async fn export_file(
+    State(state): State<Arc<Mutex<AppState>>>,
+    Query(params): Query<ExportParams>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let state = state.lock().unwrap();
+    let project = state.project.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    
+    match params.format.as_str() {
+        "svg" => {
+            let svg = if let Some(page) = params.page {
+                vector_export::generate_svg(project, page)
+            } else {
+                vector_export::generate_svg_multipage(project)
+            };
+            
+            match svg {
+                Ok(content) => Ok((
+                    [(axum::http::header::CONTENT_TYPE, "image/svg+xml")],
+                    content,
+                ).into_response()),
+                Err(e) => {
+                    eprintln!("SVG export error: {}", e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        }
+        "pdf" => {
+            match vector_export::generate_pdf(project) {
+                Ok(pdf_bytes) => Ok((
+                    [(axum::http::header::CONTENT_TYPE, "application/pdf")],
+                    pdf_bytes,
+                ).into_response()),
+                Err(e) => {
+                    eprintln!("PDF export error: {}", e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        }
+        _ => Err(StatusCode::BAD_REQUEST),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let state = Arc::new(Mutex::new(AppState { project: None }));
@@ -143,6 +191,7 @@ async fn main() {
         .route("/api/upload", post(upload_model))
         .route("/api/project", get(get_project))
         .route("/api/action", post(perform_action))
+        .route("/api/export", get(export_file))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -151,3 +200,4 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
+
