@@ -3,9 +3,9 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use crate::util_3d::{self, Point2, Vector2, Vector3, Matrix3};
+use crate::util_3d::{self, Vector3, Matrix3, Vector2};
 // use crate::util_gl::MLine3DStatus;
-use cgmath::{Deg, InnerSpace, Rad, prelude::*};
+use cgmath::{Deg, InnerSpace, Point2, Rad, prelude::*};
 use easy_imgui_window::easy_imgui::Color;
 use easy_imgui_window::easy_imgui_renderer::easy_imgui_opengl::Rgba;
 use fxhash::{FxHashMap, FxHashSet};
@@ -1250,6 +1250,9 @@ impl Papercraft {
         for (id, island) in &self.islands {
             let mut renderable_faces = Vec::new();
 
+            let mut renderable_edges = Vec::new();
+            let mut renderable_flaps = Vec::new();
+
             // We use traverse_faces_ex with island.matrix() to get GLOBAL coordinates (on the paper)
             let _ = traverse_faces_ex(
                 &self.model,
@@ -1259,17 +1262,113 @@ impl Papercraft {
                 |i_face, face, mx| {
                     let plane = self.model.face_plane(face);
                     let mut vertices = Vec::new();
+                    
                     for i_vertex in face.index_vertices() {
                         let vertex = &self.model[i_vertex];
                         let v2d = plane.project(&vertex.pos(), scale);
-                        // Transform to global space
                         let p = mx.transform_point(Point2::from_vec(v2d));
                         vertices.push(Vector2::new(p.x, p.y));
                     }
+                    
                     renderable_faces.push(RenderableFace {
                         id: i_face,
-                        vertices,
+                        vertices: vertices.clone(),
                     });
+
+                    // Collect edges and flaps for this face
+                    for i_edge in face.index_edges() {
+                        let edge = &self.model[i_edge];
+                        // Get vertices from face context
+                        let (v1, v2) = face.vertices_of_edge(i_edge).unwrap();
+                        
+                        let p1_2d = plane.project(&self.model[v1].pos(), scale);
+                        let p2_2d = plane.project(&self.model[v2].pos(), scale);
+                        
+                        let gp1 = mx.transform_point(Point2::from_vec(p1_2d));
+                        let gp2 = mx.transform_point(Point2::from_vec(p2_2d));
+                        
+                        let p1 = Vector2::new(gp1.x, gp1.y);
+                        let p2 = Vector2::new(gp2.x, gp2.y);
+                        
+                        let edge_status = self.edge_status(i_edge);
+                        let is_cut = matches!(edge_status, EdgeStatus::Cut(_));
+
+                        // Determine edge kind (string for frontend)
+                        let kind = if is_cut {
+                             "cut".to_string()
+                        } else {
+                            // Check fold angle
+                            let angle = edge.angle();
+                            // Flat is PI (180 deg)
+                            let flat = Rad::full_turn() / 2.0;
+                            let diff = (angle - flat).0;
+                            
+                            if diff > 0.1 {
+                                "mountain".to_string()
+                            } else if diff < -0.1 {
+                                "valley".to_string()
+                            } else {
+                                "flat".to_string()
+                            }
+                        };
+                        
+                        // Deduplicate: Emit shared edges only once?
+                        // For Cut edges (boundary), we only visit one side (the visible one for the island).
+                        // For Joined edges, we visit both faces A and B.
+                        // We can use generic logic: only emit if i_face < other_face, OR if boundary.
+                        let should_emit = if is_cut {
+                            true
+                        } else {
+                            let (f1, f2) = edge.faces();
+                            let other = if f1 == i_face { f2 } else { Some(f1) };
+                            if let Some(o) = other {
+                                i_face < o
+                            } else {
+                                true
+                            }
+                        };
+
+                        if should_emit {
+                             renderable_edges.push(RenderableEdge {
+                                id: i_edge,
+                                start: p1,
+                                end: p2,
+                                kind,
+                            });
+                        }
+
+                        // Flaps
+                        if let EdgeStatus::Cut(flap_side) = edge_status {
+                             let is_visible = flap_side.flap_visible(edge.face_sign(i_face));
+
+                            if is_visible {
+                                let edge_vec = p2 - p1;
+                                let edge_len = edge_vec.magnitude();
+                                if edge_len > 0.001 {
+                                    // Check CCW direction to orient flap OUTwards
+                                    // p1->p2 is based on (v1, v2) returned by face.vertices_of_edge(i_edge).
+                                    // face.vertices_of_edge returns (v_current, v_next) in CCW order.
+                                    // So p1->p2 is CCW along the face perimeter.
+                                    // The Normal (-y, x) points INWARDS to the face.
+                                    // We want OUTWARDS, so (y, -x).
+                                    
+                                    let normal = Vector2::new(edge_vec.y, -edge_vec.x).normalize();
+                                    
+                                    let flap_width = self.options.flap_width.min(edge_len * 0.4);
+                                    let taper = 0.15;
+                                    
+                                    let f0 = p1 + normal * flap_width + edge_vec.normalize() * (edge_len * taper);
+                                    let f1 = p2 + normal * flap_width - edge_vec.normalize() * (edge_len * taper);
+                                    
+                                    renderable_flaps.push(RenderableFlap {
+                                        id: i_face,
+                                        vertices: vec![p1, p2, f1, f0],
+                                    });
+                                }
+                            }
+                        }
+                    }
+
                     ControlFlow::Continue(())
                 }
             );
@@ -1279,6 +1378,8 @@ impl Papercraft {
                 pos: island.location(),
                 rot: island.rotation().0,
                 faces: renderable_faces,
+                edges: renderable_edges,
+                flaps: renderable_flaps,
             });
         }
 

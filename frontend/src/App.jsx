@@ -194,6 +194,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   const [dragStart, setDragStart] = useState(null);
   const [draggedIsland, setDraggedIsland] = useState(null);
   const [hoveredIsland, setHoveredIsland] = useState(null);
+  const [hoveredEdge, setHoveredEdge] = useState(null);
 
   // Get island data
   const islands = useMemo(() => {
@@ -208,7 +209,43 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   const pageHeight = options ? options.page_size[1] * scale : 297 * scale;
 
   // Hit test - find island at position
-  const hitTest = useCallback((x, y) => {
+  // Helper for point-segment distance (squared)
+  const distToSegmentSquared = (p, v, w) => {
+    const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+    if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2;
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2;
+  };
+
+  const hitTestEdge = useCallback((x, y) => {
+    if (!project || !project.islands) return null;
+    let hit = null;
+    let minD2 = Infinity;
+    const threshold = 2; // mm
+    const thresholdSq = threshold * threshold;
+
+    project.islands.forEach(island => {
+      if (island.edges) {
+        island.edges.forEach(edge => {
+          if (!edge.start || !edge.end) return;
+
+          const s = { x: edge.start.x !== undefined ? edge.start.x : edge.start[0], y: edge.start.y !== undefined ? edge.start.y : edge.start[1] };
+          const e = { x: edge.end.x !== undefined ? edge.end.x : edge.end[0], y: edge.end.y !== undefined ? edge.end.y : edge.end[1] };
+
+          const d2 = distToSegmentSquared({ x, y }, s, e);
+          if (d2 < thresholdSq && d2 < minD2) {
+            minD2 = d2;
+            hit = { islandId: island.id, edgeId: edge.id, edge, island };
+          }
+        });
+      }
+    });
+
+    return hit;
+  }, [project]);
+
+  const hitTest = useCallback((clientX, clientY) => {
     const canvas = canvasRef.current;
     if (!canvas || !project) return null;
 
@@ -245,7 +282,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   }, [project, islands, zoom, pan, pageWidth, pageHeight, scale]);
 
   // Handle pointer down
-  const handlePointerDown = useCallback((e) => {
+  const handlePointerDown = useCallback(async (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -254,6 +291,38 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // Check edge click first
+    if (hoveredEdge) {
+      e.stopPropagation(); // prevent island selection?
+      // Toggle logic: Cut <-> Join
+      try {
+        let actionData;
+
+        // Alt+Click for Flap Toggle (only on cut edges)
+        if (e.altKey && hoveredEdge.kind === 'cut') {
+          actionData = api.actions.toggleFlap(hoveredEdge.id);
+        } else if (hoveredEdge.kind === 'cut') {
+          // Join
+          actionData = api.actions.join(hoveredEdge.id);
+        } else {
+          // Cut
+          actionData = api.actions.cut(hoveredEdge.id, 5.0);
+        }
+
+        if (actionData) {
+          const updatedProject = await api.performAction(actionData);
+          setProject(updatedProject);
+          // Clear selection/hover
+          setHoveredEdge(null);
+          return;
+        }
+      } catch (err) {
+        console.error("Action failed:", err);
+        setError(err.message);
+      }
       return;
     }
 
@@ -300,7 +369,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e) => {
@@ -310,6 +379,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     if (isDragging) {
       if (draggedIsland) {
+        e.currentTarget.setPointerCapture(e.pointerId); // Ensure capture is maintained
         if (draggedIsland.mode === 'move') {
           // Moving an island
           const dx = (x - draggedIsland.startX) / zoom / scale;
@@ -329,11 +399,11 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
           const cy = draggedIsland.origY * scale * zoom + offsetY;
 
           const angle = Math.atan2(y - cy, x - cx);
-          const delta = angle - draggedIsland.startAngle;
+          const deltaAngle = angle - draggedIsland.startAngle;
 
           setDraggedIsland(prev => ({
             ...prev,
-            deltaAngle: delta
+            deltaAngle: deltaAngle
           }));
         }
       } else if (dragStart) {
@@ -345,10 +415,24 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       }
     } else {
       // Hover detection
-      const island = hitTest(x, y);
-      setHoveredIsland(island?.id.idx ?? null);
+      const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
+      const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+
+      // Convert screen coordinates to model coordinates (mm) for hitTestEdge
+      const modelX = (x - offsetX) / (zoom * scale);
+      const modelY = (y - offsetY) / (zoom * scale);
+
+      const edgeHit = hitTestEdge(modelX, modelY);
+      if (edgeHit) {
+        setHoveredEdge(edgeHit.edgeId);
+        setHoveredIsland(null); // Clear island hover to avoid confusion
+      } else {
+        setHoveredEdge(null);
+        const island = hitTest(x, y); // Use screen coordinates for island hitTest
+        setHoveredIsland(island ? island.id.idx : null);
+      }
     }
-  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, pan, pageWidth, pageHeight]);
+  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, pageWidth, pageHeight]);
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e) => {
@@ -495,6 +579,26 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         ctx.translate(-ix, -iy);
       }
 
+      // Draw Flaps (behind faces)
+      if (island.flaps) {
+        island.flaps.forEach(flap => {
+          if (!flap.vertices || flap.vertices.length < 3) return;
+          ctx.beginPath();
+          flap.vertices.forEach((v, i) => {
+            const vx = v.x !== undefined ? v.x : v[0];
+            const vy = v.y !== undefined ? v.y : v[1];
+            if (i === 0) ctx.moveTo(vx, vy);
+            else ctx.lineTo(vx, vy);
+          });
+          ctx.closePath();
+          ctx.fillStyle = '#e5e7eb'; // light grey
+          ctx.fill();
+          ctx.strokeStyle = '#9ca3af'; // darker grey
+          ctx.lineWidth = 0.5 / scale;
+          ctx.stroke();
+        });
+      }
+
       // Draw Faces
       if (island.faces) {
         island.faces.forEach(face => {
@@ -515,6 +619,48 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = 0.5 / scale; // constant pixel width approx
           ctx.stroke();
+        });
+      }
+
+      // Draw Edges
+      if (island.edges) {
+        island.edges.forEach(edge => {
+          const s = edge.start;
+          const e = edge.end;
+          const sx = s.x !== undefined ? s.x : s[0];
+          const sy = s.y !== undefined ? s.y : s[1];
+          const ex = e.x !== undefined ? e.x : e[0];
+          const ey = e.y !== undefined ? e.y : e[1];
+
+          const isHoveredEdge = hoveredEdge && hoveredEdge.id === edge.id;
+
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+
+          if (isHoveredEdge) {
+            ctx.lineWidth = 3 / scale;
+            ctx.strokeStyle = '#f59e0b'; // Amber-500
+            ctx.setLineDash([]);
+          } else {
+            ctx.lineWidth = 1 / scale;
+            if (edge.kind === 'cut') {
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = 1.5 / scale;
+              ctx.setLineDash([]);
+            } else if (edge.kind === 'mountain') {
+              ctx.strokeStyle = '#ef4444'; // Red
+              ctx.setLineDash([4 / scale, 2 / scale, 1 / scale, 2 / scale]);
+            } else if (edge.kind === 'valley') {
+              ctx.strokeStyle = '#3b82f6'; // Blue
+              ctx.setLineDash([4 / scale, 4 / scale]);
+            } else {
+              ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+              ctx.setLineDash([]);
+            }
+          }
+          ctx.stroke();
+          ctx.setLineDash([]); // Reset
         });
       }
 

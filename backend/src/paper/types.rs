@@ -22,12 +22,32 @@ pub struct RenderableIsland {
     pub pos: Vector2,
     pub rot: f32,
     pub faces: Vec<RenderableFace>,
+    pub edges: Vec<RenderableEdge>,
+    pub flaps: Vec<RenderableFlap>,
 }
 
 #[derive(Serialize)]
 pub struct RenderableFace {
     pub id: crate::paper::FaceIndex,
     pub vertices: Vec<Vector2>,
+}
+
+#[derive(Serialize)]
+pub struct RenderableEdge {
+    pub id: crate::paper::EdgeIndex,
+    pub start: Vector2,
+    pub end: Vector2,
+    pub kind: String, // "cut", "mountain", "valley"
+}
+
+#[derive(Serialize)]
+pub struct RenderableFlap {
+    pub id: crate::paper::FaceIndex, // Associated face
+    pub vertices: Vec<Vector2>,
+}
+
+impl RenderableIsland {
+    // Helper to keep struct definition clean above
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

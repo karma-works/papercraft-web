@@ -122,7 +122,7 @@ impl<'de> Deserialize<'de> for Model {
 // 32-bit indices should be enough for everybody ;-)
 macro_rules! index_type {
     ($vis:vis $name:ident : $inner:ty) => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
         #[repr(transparent)]
         #[serde(transparent)]
         $vis struct $name($inner);
