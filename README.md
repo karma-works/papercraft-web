@@ -143,5 +143,6 @@ GPL-3.0-or-later - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
+- This project is a web port based on the original [Papercraft](https://github.com/rodrigorc/papercraft) desktop application by Rodrigo Rivas Costa.
 - Original papercraft algorithms by Rodrigo Rivas Costa
 - Inspired by [Pepakura Designer](https://tamasoft.co.jp/pepakura-en/)

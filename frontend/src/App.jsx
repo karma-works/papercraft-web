@@ -233,6 +233,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   const [hoveredIsland, setHoveredIsland] = useState(null);
   const [hoveredEdge, setHoveredEdge] = useState(null);
 
+  // Pointer tracking for multi-touch
+  const pointersRef = useRef(new Map());
+  const prevPinchRef = useRef(null);
+
   // Get island data
   const islands = useMemo(() => {
     if (!project?.islands) return [];
@@ -320,6 +324,27 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
   // Handle pointer down
   const handlePointerDown = useCallback(async (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Multi-touch pinch start
+    if (pointersRef.current.size === 2) {
+      const points = Array.from(pointersRef.current.values());
+      const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      const center = {
+        x: (points[0].x + points[1].x) / 2,
+        y: (points[0].y + points[1].y) / 2
+      };
+
+      prevPinchRef.current = { dist, center, startZoom: zoom, startPan: { ...pan } };
+
+      // Cancel any single-finger drag
+      setDraggedIsland(null);
+      setIsDragging(false);
+      setDragStart(null);
+      return;
+    }
+
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -327,7 +352,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     if (mode === 'pan' || e.button === 1) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      e.currentTarget.setPointerCapture(e.pointerId);
+      // e.currentTarget.setPointerCapture(e.pointerId); // Already captured above
       return;
     }
 
@@ -339,14 +364,12 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         let actionData;
 
         // Alt+Click for Flap Toggle (only on cut edges)
-        if (e.altKey && hoveredEdge.kind === 'cut') {
-          actionData = api.actions.toggleFlap(hoveredEdge.id);
-        } else if (hoveredEdge.kind === 'cut') {
-          // Join
-          actionData = api.actions.join(hoveredEdge.id);
-        } else {
-          // Cut
-          actionData = api.actions.cut(hoveredEdge.id, 5.0);
+        if (e.altKey && hoveredEdge.edge.kind === 'cut') { // Access kind from hoveredEdge.edge
+          actionData = api.actions.toggleFlap(hoveredEdge.edgeId);
+        } else if (hoveredEdge.edge.kind === 'cut') { // Join
+          actionData = api.actions.join(hoveredEdge.edgeId);
+        } else { // Cut
+          actionData = api.actions.cut(hoveredEdge.edgeId, 5.0);
         }
 
         if (actionData) {
@@ -371,7 +394,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
         const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
         const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
-        const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
+        const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
         const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
 
         if (mode === 'move') {
@@ -384,7 +407,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
             origY: iy
           });
           setIsDragging(true);
-          e.currentTarget.setPointerCapture(e.pointerId);
+          // e.currentTarget.setPointerCapture(e.pointerId); // Already captured above
         } else if (mode === 'rotate') {
           // Calculate center in screen pixels
           const cx = ix * scale * zoom + offsetX;
@@ -400,16 +423,42 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
             origY: iy
           });
           setIsDragging(true);
-          e.currentTarget.setPointerCapture(e.pointerId);
+          // e.currentTarget.setPointerCapture(e.pointerId); // Already captured above
         }
       } else if (!e.shiftKey) {
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, api, setProject, setError]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e) => {
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Multi-touch pinch
+    if (pointersRef.current.size === 2 && prevPinchRef.current) {
+      const points = Array.from(pointersRef.current.values());
+      const newDist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      const newCenter = {
+        x: (points[0].x + points[1].x) / 2,
+        y: (points[0].y + points[1].y) / 2
+      };
+
+      const pinch = prevPinchRef.current;
+      const scaleFactor = newDist / pinch.dist;
+      let newZoom = pinch.startZoom * scaleFactor;
+      newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+
+      // Calculate pan adjustment to keep the pinch center fixed
+      const zoomRatio = newZoom / pinch.startZoom;
+      const panX = pinch.startPan.x + (pinch.center.x - newCenter.x) + (newCenter.x - pinch.center.x * zoomRatio);
+      const panY = pinch.startPan.y + (pinch.center.y - newCenter.y) + (newCenter.y - pinch.center.y * zoomRatio);
+
+      setZoom(newZoom);
+      setPan({ x: panX, y: panY });
+      return;
+    }
+
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -473,6 +522,13 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e) => {
+    pointersRef.current.delete(e.pointerId);
+    e.currentTarget.releasePointerCapture(e.pointerId);
+
+    if (pointersRef.current.size < 2) {
+      prevPinchRef.current = null;
+    }
+
     if (draggedIsland) {
       if (draggedIsland.mode === 'move' && draggedIsland.deltaX !== undefined) {
         if (Math.abs(draggedIsland.deltaX) > 0.1 || Math.abs(draggedIsland.deltaY) > 0.1) {
@@ -488,7 +544,6 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     setIsDragging(false);
     setDragStart(null);
     setDraggedIsland(null);
-    e.currentTarget.releasePointerCapture(e.pointerId);
   }, [draggedIsland, onMoveIsland, onRotateIsland]);
 
   // Handle wheel zoom
