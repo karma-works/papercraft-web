@@ -134,6 +134,55 @@ async function runTests() {
         assert(data.status === 'ok', 'Should return backend status');
     });
 
+    // Export Tests
+    console.log('\n📤 Export Tests\n');
+
+    await test('GET /api/export?format=svg returns SVG', async () => {
+        // Ensure a model is loaded first
+        const objContent = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\n';
+        const blob = new Blob([objContent], { type: 'text/plain' });
+        const formData = new FormData();
+        formData.append('file', blob, 'test.obj');
+        await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
+
+        const response = await fetch(`${BACKEND_URL}/api/export?format=svg`);
+        assert(response.ok, 'SVG export should succeed');
+        const contentType = response.headers.get('content-type');
+        assert(contentType && contentType.includes('svg'), 'Should return SVG content type');
+        const svg = await response.text();
+        assert(svg.includes('<svg'), 'Should contain SVG opening tag');
+        assert(svg.includes('</svg>'), 'Should contain SVG closing tag');
+    });
+
+    await test('GET /api/export?format=svg&page=0 returns single page SVG', async () => {
+        const response = await fetch(`${BACKEND_URL}/api/export?format=svg&page=0`);
+        assert(response.ok, 'Single page SVG export should succeed');
+        const svg = await response.text();
+        assert(svg.includes('<svg'), 'Should contain SVG tag');
+    });
+
+    await test('GET /api/export?format=pdf returns PDF', async () => {
+        const response = await fetch(`${BACKEND_URL}/api/export?format=pdf`);
+        assert(response.ok, 'PDF export should succeed');
+        const contentType = response.headers.get('content-type');
+        assert(contentType && contentType.includes('pdf'), 'Should return PDF content type');
+        const buffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        // Check PDF magic bytes: %PDF
+        assert(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46,
+            'Should start with PDF magic bytes');
+    });
+
+    await test('GET /api/export without format returns 400', async () => {
+        const response = await fetch(`${BACKEND_URL}/api/export`);
+        assert(response.status === 400, 'Should return 400 for missing format');
+    });
+
+    await test('GET /api/export with invalid format returns 400', async () => {
+        const response = await fetch(`${BACKEND_URL}/api/export?format=invalid`);
+        assert(response.status === 400, 'Should return 400 for invalid format');
+    });
+
     // Summary
     console.log('\n' + '='.repeat(50));
     console.log(`\n📊 Results: ${passed} passed, ${failed} failed\n`);
