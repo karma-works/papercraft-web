@@ -2,10 +2,11 @@
 
 A web-based tool to unwrap 3D models into printable papercraft patterns. This is a client/server application with a Rust backend and React frontend.
 
-![Papercraft Web](papercraft.svg)
+![Papercraft Web](papercraft-web.png)
 
 ## Features
 
+![Papercraft](papercraft.svg)
 - **3D Model Import**: Load OBJ, STL, and PDO files
 - **Interactive Unfolding**: Cut, join, and rearrange paper pieces
 - **Island Manipulation**: Move and rotate unfolded sections
