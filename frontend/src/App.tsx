@@ -105,11 +105,11 @@ interface ZoomControlsProps {
 function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }: ZoomControlsProps) {
   return (
     <div className="zoom-controls">
-      <button className="zoom-btn" onClick={onZoomOut} title="Zoom Out">
+      <button className="zoom-btn" onClick={onZoomOut} title="Zoom Out" data-testid="zoom-out-btn">
         <ZoomOut size={16} />
       </button>
       <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-      <button className="zoom-btn" onClick={onZoomIn} title="Zoom In">
+      <button className="zoom-btn" onClick={onZoomIn} title="Zoom In" data-testid="zoom-in-btn">
         <ZoomIn size={16} />
       </button>
       <button className="zoom-btn" onClick={onZoomFit} title="Fit to View">
@@ -149,6 +149,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
+          data-testid="undo-btn"
         >
           <Undo2 size={18} style={{ opacity: canUndo ? 1 : 0.3 }} />
         </button>
@@ -157,6 +158,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
+          data-testid="redo-btn"
         >
           <Redo2 size={18} style={{ opacity: canRedo ? 1 : 0.3 }} />
         </button>
@@ -166,6 +168,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'select' ? 'active' : ''}`}
           onClick={() => onModeChange('select')}
           title="Select (V)"
+          data-testid="mode-select-btn"
         >
           <MousePointer2 size={18} />
         </button>
@@ -173,6 +176,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'pan' ? 'active' : ''}`}
           onClick={() => onModeChange('pan')}
           title="Pan (H)"
+          data-testid="mode-pan-btn"
         >
           <Hand size={18} />
         </button>
@@ -182,6 +186,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'move' ? 'active' : ''}`}
           onClick={() => onModeChange('move')}
           title="Move Islands (M)"
+          data-testid="mode-move-btn"
         >
           <Move size={18} />
         </button>
@@ -189,6 +194,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'rotate' ? 'active' : ''}`}
           onClick={() => onModeChange('rotate')}
           title="Rotate Islands (R)"
+          data-testid="mode-rotate-btn"
         >
           <RotateCw size={18} />
         </button>
@@ -198,6 +204,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'cut' ? 'active' : ''}`}
           onClick={() => onModeChange('cut')}
           title="Cut Edge (C)"
+          data-testid="mode-cut-btn"
         >
           <Scissors size={18} />
         </button>
@@ -205,6 +212,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'join' ? 'active' : ''}`}
           onClick={() => onModeChange('join')}
           title="Join Edges (J)"
+          data-testid="mode-join-btn"
         >
           <Link2 size={18} />
         </button>
@@ -215,6 +223,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           isSelected={viewOptions.showFlaps}
           onChange={() => onViewOptionChange('showFlaps', !viewOptions.showFlaps)}
           aria-label="Toggle Flaps"
+          data-testid="toggle-flaps-btn"
         >
           <span style={{ fontSize: '12px', fontWeight: 'bold' }}>F</span>
         </ToggleButton>
@@ -258,6 +267,7 @@ function getPoint(p: PointOrArray): { x: number, y: number } {
 interface Canvas2DProps {
   project: Project | null;
   mode: string;
+  viewOptions: ViewOptions;
   selectedIslands: number[];
   onSelectIsland: (id: IslandId | null, addToSelection?: boolean) => void;
   onMoveIsland: (id: IslandId, delta: [number, number]) => Promise<void>;
@@ -266,10 +276,10 @@ interface Canvas2DProps {
   onError: (msg: string) => void;
 }
 
-function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
+function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(2);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
@@ -382,8 +392,35 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         return island;
       }
     }
-    return null;
   }, [project, islands, zoom, pan, pageWidth, pageHeight, scale]);
+
+  const performEdgeAction = useCallback(async (edge: any, altKey: boolean) => {
+    console.log("Performing edge action:", edge, "Mode:", mode, "Alt:", altKey);
+    try {
+      let actionData;
+
+      // Alt+Click for Flap Toggle
+      if (altKey) {
+        actionData = api.actions.toggleFlap(edge.id);
+      } else if (mode === 'join' || (mode === 'select' && edge.kind === 'cut')) {
+        actionData = api.actions.join(edge.id);
+      } else if (mode === 'cut' || (mode === 'select' && (edge.kind === 'mountain' || edge.kind === 'valley'))) {
+        actionData = api.actions.cut(edge.id, 5.0);
+      }
+
+      if (actionData) {
+        console.log("Sending action to backend:", actionData);
+        const updatedProject = await api.performAction(actionData);
+        onProjectUpdate(updatedProject);
+        setHoveredEdge(null);
+      } else {
+        console.log("No action determined for this mode/edge combination.");
+      }
+    } catch (err: any) {
+      console.error("Action failed:", err);
+      onError(err.message);
+    }
+  }, [mode, onProjectUpdate, onError]);
 
   // Handle pointer down
   const handlePointerDown = useCallback(async (e: React.PointerEvent) => {
@@ -422,32 +459,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     // Check edge click first
     if (hoveredEdge) {
-      e.stopPropagation(); // prevent island selection?
-      // Toggle logic: Cut <-> Join
-      try {
-        let actionData;
-
-        // Alt+Click for Flap Toggle (only on cut edges)
-        if (e.altKey && hoveredEdge.edge.kind === 'cut') { // Access kind from hoveredEdge.edge
-          actionData = api.actions.toggleFlap(hoveredEdge.edgeId);
-        } else if (hoveredEdge.edge.kind === 'cut') { // Join
-          actionData = api.actions.join(hoveredEdge.edgeId);
-        } else { // Cut
-          actionData = api.actions.cut(hoveredEdge.edgeId, 5.0);
-        }
-
-        if (actionData) {
-          const updatedProject = await api.performAction(actionData);
-          onProjectUpdate(updatedProject);
-          // Clear selection/hover
-          setHoveredEdge(null);
-          return;
-        }
-      } catch (err: any) {
-        console.error("Action failed:", err);
-        onError(err.message);
-      }
-      return;
+      e.stopPropagation();
+      await performEdgeAction(hoveredEdge, e.altKey);
+      // If we are in cut/join mode, don't fallback to island selection
+      if (mode === 'cut' || mode === 'join') return;
     }
 
     const island = hitTest(x, y);
@@ -492,7 +507,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, onProjectUpdate, onError]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, performEdgeAction, onProjectUpdate, onError]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -744,7 +759,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       }
 
       // Draw Flaps (behind faces)
-      if (island.flaps) {
+      if (viewOptions.showFlaps && island.flaps) {
         island.flaps.forEach(flap => {
           if (!flap.vertices || flap.vertices.length < 3) return;
           ctx.beginPath();
@@ -860,9 +875,26 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     ctx.restore(); // Clip restore
 
-  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, pageWidth, pageHeight, scale]);
+  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, viewOptions, pageWidth, pageHeight, scale]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (local to Canvas2D for edge interaction)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (hoveredEdge) {
+          e.preventDefault();
+          performEdgeAction(hoveredEdge, e.altKey);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hoveredEdge, performEdgeAction]);
+
+  // Keyboard shortcuts (global to Canvas2D)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
@@ -890,6 +922,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       <canvas
         ref={canvasRef}
         className="canvas-2d"
+        data-testid="paper-canvas"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1121,6 +1154,7 @@ export default function App() {
                 <Canvas2D
                   project={project}
                   mode={mode}
+                  viewOptions={viewOptions}
                   selectedIslands={selectedIslands}
                   onSelectIsland={handleSelectIsland}
                   onMoveIsland={handleMoveIsland}
