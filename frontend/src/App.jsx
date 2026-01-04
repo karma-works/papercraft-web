@@ -6,6 +6,7 @@ import {
   MousePointer2, Hand
 } from 'lucide-react';
 import * as api from './api/client';
+import Preview3D from './Preview3D';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -719,7 +720,7 @@ export default function App() {
           <div className="panel-header">3D Preview</div>
           <div className="panel-content">
             {project ? (
-              <EmptyState icon={Box} message="3D preview coming soon" />
+              <Preview3D project={project} />
             ) : (
               <FileUpload onUpload={handleUpload} isLoading={isLoading} />
             )}
