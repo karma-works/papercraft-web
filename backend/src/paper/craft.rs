@@ -195,6 +195,14 @@ impl MyColor {
     pub fn to_rgba(&self) -> Rgba {
         Rgba::new(self.0.r, self.0.g, self.0.b, self.0.a)
     }
+    pub fn to_hex(&self) -> String {
+        format!(
+            "#{:02X}{:02X}{:02X}",
+            (self.0.r * 255.0).round() as u8,
+            (self.0.g * 255.0).round() as u8,
+            (self.0.b * 255.0).round() as u8
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

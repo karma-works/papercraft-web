@@ -242,11 +242,11 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                 let p0_rel = p0 - page_offset;
                 let p1_rel = p1 - page_offset;
                 
-                let edge_idx: usize = i_edge.into();
-                if edge_idx % 2 == 0 {
-                    mountain_lines.push((p0_rel, p1_rel));
-                } else {
+                let angle = edge.angle().0;
+                if angle.is_sign_negative() {
                     valley_lines.push((p0_rel, p1_rel));
+                } else {
+                    mountain_lines.push((p0_rel, p1_rel));
                 }
              }
              ControlFlow::Continue(())
@@ -293,13 +293,11 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         }
     }
 
-    // Write Faces layer
-    let paper_color = &options.paper_color;
-    let paper_color_hex = format!("#{:.02X}{:02X}{:02X}", 
-        (paper_color.0.r * 255.0) as u8, 
-        (paper_color.0.g * 255.0) as u8, 
-        (paper_color.0.b * 255.0) as u8
-    );
+    // Colors from options
+    let paper_color_hex = options.paper_color.to_hex();
+    let cut_color_hex = options.cut_line_color.to_hex();
+    let fold_color_hex = options.fold_line_color.to_hex();
+    let tab_color_hex = options.tab_line_color.to_hex();
 
     writeln!(w, r#"<g inkscape:label="Faces" inkscape:groupmode="layer" id="Faces">"#)?;
     for (idx, (_, vertices)) in faces_data.iter().enumerate() {
@@ -315,7 +313,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     if !flap_polygons.is_empty() {
         writeln!(w, r#"<g inkscape:label="Flaps" inkscape:groupmode="layer" id="Flaps">"#)?;
         for (idx, vertices) in flap_polygons.iter().enumerate() {
-            write!(w, r##"<polygon id="flap_{}" fill="#E0E0E0" stroke="#808080" stroke-width="0.1" points=""##, idx)?;
+            write!(w, r##"<polygon id="flap_{}" fill="#E0E0E0" stroke="{}" stroke-width="0.1" points=""##, idx, tab_color_hex)?;
             for v in vertices { write!(w, "{},{} ", v.x, v.y)?; }
             writeln!(w, r#""/>"#)?;
         }
@@ -327,12 +325,12 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         writeln!(w, r#"<g inkscape:label="Fold" inkscape:groupmode="layer" id="Fold">"#)?;
         writeln!(w, r#"<g inkscape:label="Mountain" inkscape:groupmode="layer" id="Mountain">"#)?;
         for (idx, (p0, p1)) in mountain_lines.iter().enumerate() {
-            writeln!(w, r##"<line id="mountain_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="#FF0000" stroke-width="0.2" stroke-dasharray="1,0.5"/>"##, idx, p0.x, p0.y, p1.x, p1.y)?;
+            writeln!(w, r##"<line id="mountain_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="0.2" />"##, idx, p0.x, p0.y, p1.x, p1.y, fold_color_hex)?;
         }
         writeln!(w, r#"</g>"#)?;
         writeln!(w, r#"<g inkscape:label="Valley" inkscape:groupmode="layer" id="Valley">"#)?;
         for (idx, (p0, p1)) in valley_lines.iter().enumerate() {
-            writeln!(w, r##"<line id="valley_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="#0000FF" stroke-width="0.2" stroke-dasharray="0.5,0.5"/>"##, idx, p0.x, p0.y, p1.x, p1.y)?;
+            writeln!(w, r##"<line id="valley_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="0.2" stroke-dasharray="1,1"/>"##, idx, p0.x, p0.y, p1.x, p1.y, fold_color_hex)?;
         }
         writeln!(w, r#"</g></g>"#)?;
     }
@@ -340,7 +338,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     // Write Cut lines layer
     writeln!(w, r#"<g inkscape:label="Cut" inkscape:groupmode="layer" id="Cut">"#)?;
     for (idx, contour) in cut_paths.iter().enumerate() {
-        write!(w, r##"<path id="cut_{}" fill="none" stroke="#000000" stroke-width="0.3" d="M "##, idx)?;
+        write!(w, r##"<path id="cut_{}" fill="none" stroke="{}" stroke-width="0.3" d="M "##, idx, cut_color_hex)?;
         for (i, p) in contour.iter().enumerate() {
             if i == 0 { write!(w, "{},{} ", p.x, p.y)?; } 
             else { write!(w, "L {},{} ", p.x, p.y)?; }
