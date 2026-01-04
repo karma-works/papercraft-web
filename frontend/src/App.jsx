@@ -229,7 +229,6 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     // Find island at this position
     for (const island of islands) {
       // island.pos is {x, y} or [x, y]
-      // Assuming cgmath serializes to {x, y} or [x, y]. Let's handle both.
       const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
       const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
 
@@ -263,13 +262,34 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     if (mode === 'select' || mode === 'move' || mode === 'rotate') {
       if (island) {
         onSelectIsland(island.id, e.shiftKey);
+
+        const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
+        const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+        const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
+        const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+
         if (mode === 'move') {
-          const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
-          const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
           setDraggedIsland({
             id: island.id,
+            mode: 'move',
             startX: x,
             startY: y,
+            origX: ix,
+            origY: iy
+          });
+          setIsDragging(true);
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } else if (mode === 'rotate') {
+          // Calculate center in screen pixels
+          const cx = ix * scale * zoom + offsetX;
+          const cy = iy * scale * zoom + offsetY;
+          const angle = Math.atan2(y - cy, x - cx);
+
+          setDraggedIsland({
+            id: island.id,
+            mode: 'rotate',
+            startAngle: angle,
+            deltaAngle: 0,
             origX: ix,
             origY: iy
           });
@@ -280,7 +300,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e) => {
@@ -290,17 +310,32 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     if (isDragging) {
       if (draggedIsland) {
-        // Moving an island
-        const dx = (x - draggedIsland.startX) / zoom / scale;
-        const dy = (y - draggedIsland.startY) / zoom / scale;
-        // Visual feedback during drag - actual API call on release
-        setDraggedIsland(prev => ({
-          ...prev,
-          currentX: prev.origX + dx,
-          currentY: prev.origY + dy,
-          deltaX: dx,
-          deltaY: dy
-        }));
+        if (draggedIsland.mode === 'move') {
+          // Moving an island
+          const dx = (x - draggedIsland.startX) / zoom / scale;
+          const dy = (y - draggedIsland.startY) / zoom / scale;
+
+          setDraggedIsland(prev => ({
+            ...prev,
+            currentX: prev.origX + dx,
+            currentY: prev.origY + dy,
+            deltaX: dx,
+            deltaY: dy
+          }));
+        } else if (draggedIsland.mode === 'rotate') {
+          const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
+          const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+          const cx = draggedIsland.origX * scale * zoom + offsetX;
+          const cy = draggedIsland.origY * scale * zoom + offsetY;
+
+          const angle = Math.atan2(y - cy, x - cx);
+          const delta = angle - draggedIsland.startAngle;
+
+          setDraggedIsland(prev => ({
+            ...prev,
+            deltaAngle: delta
+          }));
+        }
       } else if (dragStart) {
         // Panning
         setPan({
@@ -311,16 +346,21 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     } else {
       // Hover detection
       const island = hitTest(x, y);
-      setHoveredIsland(island?.id ?? null);
+      setHoveredIsland(island?.id.idx ?? null);
     }
-  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest]);
+  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, pan, pageWidth, pageHeight]);
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e) => {
-    if (draggedIsland && draggedIsland.deltaX !== undefined) {
-      // Commit the move
-      if (Math.abs(draggedIsland.deltaX) > 0.1 || Math.abs(draggedIsland.deltaY) > 0.1) {
-        await onMoveIsland(draggedIsland.id, [draggedIsland.deltaX, draggedIsland.deltaY]);
+    if (draggedIsland) {
+      if (draggedIsland.mode === 'move' && draggedIsland.deltaX !== undefined) {
+        if (Math.abs(draggedIsland.deltaX) > 0.1 || Math.abs(draggedIsland.deltaY) > 0.1) {
+          await onMoveIsland(draggedIsland.id, [draggedIsland.deltaX, draggedIsland.deltaY]);
+        }
+      } else if (draggedIsland.mode === 'rotate' && draggedIsland.deltaAngle !== undefined) {
+        if (Math.abs(draggedIsland.deltaAngle) > 0.01) {
+          await onRotateIsland(draggedIsland.id, draggedIsland.deltaAngle, [draggedIsland.origX, draggedIsland.origY]);
+        }
       }
     }
 
@@ -328,7 +368,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     setDragStart(null);
     setDraggedIsland(null);
     e.currentTarget.releasePointerCapture(e.pointerId);
-  }, [draggedIsland, onMoveIsland]);
+  }, [draggedIsland, onMoveIsland, onRotateIsland]);
 
   // Handle wheel zoom
   const handleWheel = useCallback((e) => {
@@ -401,8 +441,6 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     // Draw paper background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
-
-    // Draw paper border
     ctx.strokeStyle = '#4a4a5e';
     ctx.lineWidth = 1;
     ctx.strokeRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
@@ -415,9 +453,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     // Draw islands
     islands.forEach((island) => {
-      const isSelected = selectedIslands.includes(island.id);
-      const isHovered = hoveredIsland === island.id;
-      const isDragged = draggedIsland?.id === island.id;
+      // Use idx for comparison
+      const isSelected = selectedIslands.includes(island.id.idx);
+      const isHovered = hoveredIsland === island.id.idx;
+      const isDragged = draggedIsland?.id.idx === island.id.idx;
 
       // Extract pos and rot
       const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
@@ -425,33 +464,35 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
       let tx = 0;
       let ty = 0;
-      let rot = 0; // island.rot is already applied to vertices in global space?
-      // Wait, vertices are global.
-      // So normally we draw vertices as is.
-      // But if dragged, we translate.
-      // If rotated (interactively), we rotate around center (ix, iy).
+      let rot = 0;
 
       if (isDragged) {
-        tx = draggedIsland.deltaX || 0;
-        ty = draggedIsland.deltaY || 0;
+        if (draggedIsland.mode === 'move') {
+          tx = draggedIsland.deltaX || 0;
+          ty = draggedIsland.deltaY || 0;
+        } else if (draggedIsland.mode === 'rotate') {
+          rot = draggedIsland.deltaAngle || 0;
+        }
       }
 
       ctx.save();
 
-      // Transform context for this island?
-      // Since vertices are Global, we only transform if there is a delta.
-      // Vertices are already scaled to mm?
-      // Vertices are in mm (same unit as pos).
-      // We need to scale to pixels: * scale * zoom.
-      // And translate to canvas offset: offsetX, offsetY.
-
-      // Base transform to convert mm to canvas pixels
+      // Base transform to convert mm to canvas pixels (and paper offset)
       ctx.translate(offsetX, offsetY);
       ctx.scale(zoom * scale, zoom * scale);
 
-      // Apply drag delta (in mm)
+      // Apply drag translation (in mm)
       if (tx !== 0 || ty !== 0) {
         ctx.translate(tx, ty);
+      }
+
+      // Apply rotation
+      // Rotation needs to be around island center (ix, iy)
+      // Visual rotation: translate to center, rotate, translate back
+      if (rot !== 0) {
+        ctx.translate(ix, iy);
+        ctx.rotate(rot);
+        ctx.translate(-ix, -iy);
       }
 
       // Draw Faces
@@ -478,7 +519,6 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       }
 
       // Draw Island Marker (Center)
-      // Visual aid for selection/rotation center
       const markerSize = (isSelected ? 6 : 4) / scale;
       ctx.beginPath();
       ctx.arc(ix, iy, markerSize, 0, Math.PI * 2);
@@ -488,6 +528,9 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       // Rotation Handle
       if (isSelected && mode === 'rotate') {
         const handleDist = 15; // mm
+        // We need to rotate the handle position visually too if we are rotating!
+        // But we already applied context rotation above for the whole island drawing group.
+        // So drawing at (ix + 15, iy) will be rotated correctly by the context.
         const handleX = ix + handleDist;
         const handleY = iy;
 
@@ -495,7 +538,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         ctx.moveTo(ix, iy);
         ctx.lineTo(handleX, handleY);
         ctx.strokeStyle = '#6366f1';
-        // ctx.lineWidth = 1 / scale;
+        ctx.lineWidth = 1 / scale;
         ctx.stroke();
 
         ctx.beginPath();
@@ -503,20 +546,6 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         ctx.fillStyle = '#6366f1';
         ctx.fill();
       }
-
-      // Label
-      ctx.fillStyle = '#1e1e2e';
-      ctx.font = `${5}px Inter, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      // Use island.id (index) for label
-      // island.id is likely a slotmap key (struct), so use index/counter logic if simpler?
-      // Or just 'A', 'B' ... 
-      // We don't have linear index in RenderableIsland unless we map it.
-      // But island.id is opaque.
-      // Let's just draw a dot for now or use island.name if available?
-      // We didn't include name in RenderableIsland.
-      // So just a dot.
 
       ctx.restore();
     });
@@ -634,42 +663,42 @@ export default function App() {
   };
 
   // Handle island selection
-  const handleSelectIsland = useCallback((islandIdx, addToSelection = false) => {
-    if (islandIdx === null) {
+  const handleSelectIsland = useCallback((islandId, addToSelection = false) => {
+    const id = islandId?.idx ?? null;
+    if (id === null) {
       setSelectedIslands([]);
     } else if (addToSelection) {
       setSelectedIslands(prev =>
-        prev.includes(islandIdx)
-          ? prev.filter(i => i !== islandIdx)
-          : [...prev, islandIdx]
+        prev.includes(id)
+          ? prev.filter(i => i !== id)
+          : [...prev, id]
       );
     } else {
-      setSelectedIslands([islandIdx]);
+      setSelectedIslands([id]);
     }
   }, []);
 
   // Handle island move
-  const handleMoveIsland = useCallback(async (islandIdx, delta) => {
+  const handleMoveIsland = useCallback(async (islandId, delta) => {
     try {
-      const island = project.islands[islandIdx];
+      // islandId is the full key object {idx, version}
       const result = await api.performAction({
         type: 'moveIsland',
-        island: { idx: islandIdx, version: island.version },
+        island: islandId,
         delta
       });
       setProject(result);
     } catch (err) {
       setError('Failed to move island: ' + err.message);
     }
-  }, [project]);
+  }, []);
 
   // Handle island rotate
-  const handleRotateIsland = useCallback(async (islandIdx, angle, center) => {
+  const handleRotateIsland = useCallback(async (islandId, angle, center) => {
     try {
-      const island = project.islands[islandIdx];
       const result = await api.performAction({
         type: 'rotateIsland',
-        island: { idx: islandIdx, version: island.version },
+        island: islandId,
         angle,
         center
       });
@@ -677,7 +706,7 @@ export default function App() {
     } catch (err) {
       setError('Failed to rotate island: ' + err.message);
     }
-  }, [project]);
+  }, []);
 
   // Handle view option change
   const handleViewOptionChange = useCallback((option, value) => {

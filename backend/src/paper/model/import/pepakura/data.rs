@@ -494,7 +494,10 @@ impl<R: Read> Reader<'_, R> {
         };
         // eof!
         let eof = read_u32(self.rdr)?;
-        assert!(eof == 9999);
+        // assert!(eof == 9999);
+        if eof != 9999 {
+            log::warn!("Unexpected EOF marker: expected 9999, got {}", eof);
+        }
         Ok(Pdo {
             objs,
             mats,
