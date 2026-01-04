@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
-  ZoomIn, ZoomOut, Maximize2, Box,
+  ZoomIn, ZoomOut, Maximize2, Box, Origami,
   MousePointer2, Hand, Undo2, Redo2, HelpCircle
 } from 'lucide-react';
 import * as api from './api/client';
@@ -1073,7 +1073,10 @@ export default function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">Papercraft Web</h1>
+        <h1 className="app-title">
+          <span className="app-logo"><Origami size={24} /></span>
+          Papercraft Web
+        </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <FileUpload onUpload={handleUpload} isLoading={isLoading} compact />
           <StatusIndicator connected={status.connected} hasModel={status.hasModel} />
