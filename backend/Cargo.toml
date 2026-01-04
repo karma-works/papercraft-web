@@ -66,3 +66,6 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "fs"] }
+
+[dev-dependencies]
+regex = "1.12.2"

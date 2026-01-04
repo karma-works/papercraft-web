@@ -106,7 +106,7 @@ export default function Preview3D({ project }: Preview3DProps) {
                 3D Preview
             </div>
 
-            <Canvas shadows camera={{ position: [5, 5, 5], fov: 45 }}>
+            <Canvas shadows camera={{ position: [15, 15, 15], fov: 45 }}>
                 <ambientLight intensity={0.5} />
                 <pointLight position={[10, 10, 10]} intensity={1} castShadow />
                 <pointLight position={[-10, -10, -10]} intensity={0.5} />

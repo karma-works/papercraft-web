@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use crate::paper::{Papercraft, PaperOptions};
+use crate::paper::Papercraft;
 use crate::config;
 
 pub struct GlobalContext {

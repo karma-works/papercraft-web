@@ -8,7 +8,7 @@ use std::ops::ControlFlow;
 use cgmath::{EuclideanSpace, InnerSpace, Rad, Transform};
 
 use crate::paper::{
-    EdgeIdPosition, EdgeStatus, FlapSide, FlapStyle, FoldStyle, IslandKey, Papercraft,
+    EdgeIdPosition, EdgeStatus, FlapStyle, FoldStyle, IslandKey, Papercraft,
     signature,
 };
 use crate::util_3d::{Matrix3, Point2, Vector2};
@@ -34,6 +34,7 @@ pub struct PrintableText {
 
 /// Edge classification for fold lines
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub enum EdgeDrawKind {
     Mountain,
     Valley,
@@ -84,9 +85,14 @@ fn write_svg_multipage(papercraft: &Papercraft, w: &mut impl Write) -> Result<()
     let page_size = Vector2::new(options.page_size.0, options.page_size.1);
     let page_count = options.pages;
 
-    // Calculate total canvas size (all pages side by side for now)
-    let total_width = page_size.x * page_count as f32;
-    let total_height = page_size.y;
+    // Calculate total canvas size
+    // We must match backend/src/paper/craft.rs PAGE_SEP
+    const PAGE_SEP: f32 = 10.0; 
+    let cols = options.page_cols.max(1);
+    let rows = (page_count + cols - 1) / cols;
+    
+    let total_width = (cols as f32) * (page_size.x + PAGE_SEP) - PAGE_SEP;
+    let total_height = (rows as f32) * (page_size.y + PAGE_SEP) - PAGE_SEP;
 
     // SVG Header
     writeln!(w, r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#)?;
@@ -128,7 +134,6 @@ fn write_svg_multipage(papercraft: &Papercraft, w: &mut impl Write) -> Result<()
 fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> Result<()> {
     let options = papercraft.options();
     let scale = options.scale;
-    let in_page = options.is_in_page_fn(page);
 
     // Collect data
     let mut faces_data: Vec<(IslandKey, Vec<Vector2>)> = Vec::new();
@@ -137,8 +142,30 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     let mut valley_lines: Vec<(Vector2, Vector2)> = Vec::new();
     let mut flap_polygons: Vec<Vec<Vector2>> = Vec::new();
 
+    // Page slot geometry for relaxed assignment
+    let _slot_width = match options.page_cols {
+        0 | 1 => 100000.0,
+        _ => options.page_size.0 + 10.0, // Width + Sep
+    };
+    let _slot_height = options.page_size.1 + 10.0;
+    let _page_cols = options.page_cols.max(1);
+
     // Iterate over all islands
     for (i_island, island) in papercraft.islands() {
+        // Determine which page this island belongs to based on bounding box center
+        let (bb_min, bb_max) = papercraft.island_bounding_box_angle(island, Rad(0.0));
+        let center = (bb_min + bb_max) / 2.0;
+
+        let po = options.global_to_page(center);
+        let owner_page = (po.row as u32) * options.page_cols.max(1) + (po.col as u32);
+        
+        // If this island does not belong to the current page, skip it completely.
+        if owner_page != page {
+            continue;
+        }
+
+        let page_offset = options.page_position(page);
+
         // 1. Build Face -> Island matrix map
         let mut face_matrices: std::collections::HashMap<crate::paper::FaceIndex, Matrix3> = std::collections::HashMap::new();
         let _ = papercraft.traverse_faces(island, |i_face, _, mx| {
@@ -146,33 +173,20 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
             ControlFlow::Continue(())
         });
 
-        // Island -> Paper matrix
-        let island_mx = island.matrix();
-
         // 2. Collect Faces
-        let _ = papercraft.traverse_faces(island, |i_face, face, mx| {
+        let _ = papercraft.traverse_faces(island, |_, face, full_mx| {
             let plane = papercraft.model().face_plane(face);
-            let mut face_vertices: Vec<Vector2> = Vec::new();
             
-            // Full transform: Face -> Island -> Paper
-            let full_mx = island_mx * mx;
-
+            let mut face_vertices: Vec<Vector2> = Vec::new();
             for i_vertex in face.index_vertices() {
                 let vertex = &papercraft.model()[i_vertex];
                 let v2d = plane.project(&vertex.pos(), scale);
                 let transformed = full_mx.transform_point(Point2::from_vec(v2d)).to_vec();
                 
-                let (is_in, pos) = in_page(transformed);
-                if is_in {
-                    face_vertices.push(pos);
-                } else {
-                    face_vertices.push(transformed);
-                }
+                // Always convert to relative, no filtering
+                face_vertices.push(transformed - page_offset);
             }
-            
-            if !face_vertices.is_empty() {
-                faces_data.push((i_island, face_vertices));
-            }
+            faces_data.push((i_island, face_vertices));
             ControlFlow::Continue(())
         });
 
@@ -180,7 +194,6 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         let perimeter = papercraft.island_perimeter(i_island);
         if !perimeter.is_empty() {
             let mut contour_points: Vec<Vector2> = Vec::new();
-            let mut touching = false;
             
             for peri in perimeter.iter() {
                 let edge = &papercraft.model()[peri.i_edge()];
@@ -188,9 +201,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                 let face = &papercraft.model()[i_face];
                 let plane = papercraft.model().face_plane(face);
                 
-                // Get matrix for this face
-                let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::from_scale(1.0));
-                let full_mx = island_mx * mx;
+                let full_mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::identity());
 
                 let (i_v0, _) = face.vertices_of_edge(peri.i_edge()).unwrap();
                 let v0 = &papercraft.model()[i_v0];
@@ -198,60 +209,26 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                 let p0_2d = plane.project(&v0.pos(), scale);
                 let p0 = full_mx.transform_point(Point2::from_vec(p0_2d)).to_vec();
                 
-                let (is_in, pos) = in_page(p0);
-                touching = touching || is_in;
-                contour_points.push(pos);
+                contour_points.push(p0 - page_offset);
             }
             
-            if touching && !contour_points.is_empty() {
+            if !contour_points.is_empty() {
                 cut_paths.push(contour_points);
             }
         }
 
         // 4. Collect Folds
-        let _ = papercraft.traverse_faces(island, |_, face, mx| {
-            let full_mx = island_mx * mx;
-
-            for i_edge in face.index_edges() {
-                let edge_status = papercraft.edge_status(i_edge);
-                if edge_status != EdgeStatus::Joined { continue; }
-                
-                let edge = &papercraft.model()[i_edge];
-                if edge.faces().1.is_none() { continue; } // Boundary edge (should be cut, but checked anyway)
-                
-                // To avoid duplication, only process if this face is the "primary" one (e.g. index comparison)
-                // But traverse visit each face once. An edge is shared by 2 faces.
-                // We will visit it twice. We can rely on EdgeIndex < Other Face Index? No.
-                // Simple check: process only if current face index < neighbor face index
-                let f1 = edge.faces().0;
-                let f2 = edge.faces().1.unwrap();
-                
-                // We need the face index being visited. traverse_faces passes it.
-                // Wait, traverse_faces closure signature: |i_face, face, mx|
-                // But I named it `_` above. Let's fix.
-                let current_i_face = edge.face_by_sign(edge.face_sign(f1)).unwrap(); // This is just f1 or f2?
-                // Actually `face` arg corresponds to `i_face`.
-                // I need i_face in loop.
-                continue; 
-            }
-            ControlFlow::Continue(())
-        });
-        
-        // Revised Fold Loop (using traverse_faces correctly)
-        let _ = papercraft.traverse_faces(island, |i_face, face, mx| {
-             let full_mx = island_mx * mx;
-
+        let _ = papercraft.traverse_faces(island, |i_face, face, full_mx| {
              for i_edge in face.index_edges() {
                 let edge_status = papercraft.edge_status(i_edge);
                 if edge_status != EdgeStatus::Joined { continue; }
 
                 let edge = &papercraft.model()[i_edge];
-                let (f_a, f_b_opt) = edge.faces();
+                let (_f_a, f_b_opt) = edge.faces();
                 let Some(f_b) = f_b_opt else { continue; };
                 
-                // Process edge only once: when visiting face with smaller index
-                if i_face > f_b { continue; } // Skip if we are the larger index, let the other handle it
-                if i_face == f_b { continue; } // Should not happen
+                if i_face > f_b { continue; }
+                if i_face == f_b { continue; }
 
                 let plane = papercraft.model().face_plane(face);
                 let Some((i_v0, i_v1)) = face.vertices_of_edge(i_edge) else { continue; };
@@ -262,16 +239,14 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                 let p0 = full_mx.transform_point(Point2::from_vec(plane.project(&v0.pos(), scale))).to_vec();
                 let p1 = full_mx.transform_point(Point2::from_vec(plane.project(&v1.pos(), scale))).to_vec();
                 
-                let (is_in_0, p0) = in_page(p0);
-                let (is_in_1, p1) = in_page(p1);
+                let p0_rel = p0 - page_offset;
+                let p1_rel = p1 - page_offset;
                 
-                if !is_in_0 && !is_in_1 { continue; }
-                
-                let edge_idx: usize = i_edge.into();
-                if edge_idx % 2 == 0 {
-                    mountain_lines.push((p0, p1));
+                let angle = edge.angle().0;
+                if angle.is_sign_negative() {
+                    valley_lines.push((p0_rel, p1_rel));
                 } else {
-                    valley_lines.push((p0, p1));
+                    mountain_lines.push((p0_rel, p1_rel));
                 }
              }
              ControlFlow::Continue(())
@@ -289,8 +264,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                     let face = &papercraft.model()[i_face];
                     let plane = papercraft.model().face_plane(face);
                     
-                    let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::identity());
-                    let full_mx = island_mx * mx;
+                    let full_mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::identity());
 
                     let Some((i_v0, i_v1)) = face.vertices_of_edge(peri.i_edge()) else { continue; };
                     let v0 = &papercraft.model()[i_v0];
@@ -299,32 +273,31 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                     let p0 = full_mx.transform_point(Point2::from_vec(plane.project(&v0.pos(), scale))).to_vec();
                     let p1 = full_mx.transform_point(Point2::from_vec(plane.project(&v1.pos(), scale))).to_vec();
 
-                    let (is_in_0, p0) = in_page(p0);
-                    let (is_in_1, p1) = in_page(p1);
-                    if !is_in_0 && !is_in_1 { continue; }
+                    let p0_rel = p0 - page_offset;
+                    let p1_rel = p1 - page_offset;
 
-                    let edge_vec = p1 - p0;
+                    // Calculation of flap geometry needs original vector direction, 
+                    // but we can use relative points since vector difference is same.
+                    let edge_vec = p1_rel - p0_rel;
                     let edge_len = edge_vec.magnitude();
                     let normal = Vector2::new(-edge_vec.y, edge_vec.x).normalize();
                     let flap_width = options.flap_width.min(edge_len * 0.4);
                     let taper = 0.15;
                     
-                    let f0 = p0 + normal * flap_width + edge_vec.normalize() * (edge_len * taper);
-                    let f1 = p1 + normal * flap_width - edge_vec.normalize() * (edge_len * taper);
+                    let f0 = p0_rel + normal * flap_width + edge_vec.normalize() * (edge_len * taper);
+                    let f1 = p1_rel + normal * flap_width - edge_vec.normalize() * (edge_len * taper);
                     
-                    flap_polygons.push(vec![p0, p1, f1, f0]);
+                    flap_polygons.push(vec![p0_rel, p1_rel, f1, f0]);
                 }
             }
         }
     }
 
-    // Write Faces layer
-    let paper_color = &options.paper_color;
-    let paper_color_hex = format!("#{:.02X}{:02X}{:02X}", 
-        (paper_color.0.r * 255.0) as u8, 
-        (paper_color.0.g * 255.0) as u8, 
-        (paper_color.0.b * 255.0) as u8
-    );
+    // Colors from options
+    let paper_color_hex = options.paper_color.to_hex();
+    let cut_color_hex = options.cut_line_color.to_hex();
+    let fold_color_hex = options.fold_line_color.to_hex();
+    let tab_color_hex = options.tab_line_color.to_hex();
 
     writeln!(w, r#"<g inkscape:label="Faces" inkscape:groupmode="layer" id="Faces">"#)?;
     for (idx, (_, vertices)) in faces_data.iter().enumerate() {
@@ -340,7 +313,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     if !flap_polygons.is_empty() {
         writeln!(w, r#"<g inkscape:label="Flaps" inkscape:groupmode="layer" id="Flaps">"#)?;
         for (idx, vertices) in flap_polygons.iter().enumerate() {
-            write!(w, r##"<polygon id="flap_{}" fill="#E0E0E0" stroke="#808080" stroke-width="0.1" points=""##, idx)?;
+            write!(w, r##"<polygon id="flap_{}" fill="#E0E0E0" stroke="{}" stroke-width="0.1" points=""##, idx, tab_color_hex)?;
             for v in vertices { write!(w, "{},{} ", v.x, v.y)?; }
             writeln!(w, r#""/>"#)?;
         }
@@ -352,12 +325,12 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         writeln!(w, r#"<g inkscape:label="Fold" inkscape:groupmode="layer" id="Fold">"#)?;
         writeln!(w, r#"<g inkscape:label="Mountain" inkscape:groupmode="layer" id="Mountain">"#)?;
         for (idx, (p0, p1)) in mountain_lines.iter().enumerate() {
-            writeln!(w, r##"<line id="mountain_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="#FF0000" stroke-width="0.2" stroke-dasharray="1,0.5"/>"##, idx, p0.x, p0.y, p1.x, p1.y)?;
+            writeln!(w, r##"<line id="mountain_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="0.2" />"##, idx, p0.x, p0.y, p1.x, p1.y, fold_color_hex)?;
         }
         writeln!(w, r#"</g>"#)?;
         writeln!(w, r#"<g inkscape:label="Valley" inkscape:groupmode="layer" id="Valley">"#)?;
         for (idx, (p0, p1)) in valley_lines.iter().enumerate() {
-            writeln!(w, r##"<line id="valley_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="#0000FF" stroke-width="0.2" stroke-dasharray="0.5,0.5"/>"##, idx, p0.x, p0.y, p1.x, p1.y)?;
+            writeln!(w, r##"<line id="valley_{}" x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="0.2" stroke-dasharray="1,1"/>"##, idx, p0.x, p0.y, p1.x, p1.y, fold_color_hex)?;
         }
         writeln!(w, r#"</g></g>"#)?;
     }
@@ -365,7 +338,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     // Write Cut lines layer
     writeln!(w, r#"<g inkscape:label="Cut" inkscape:groupmode="layer" id="Cut">"#)?;
     for (idx, contour) in cut_paths.iter().enumerate() {
-        write!(w, r##"<path id="cut_{}" fill="none" stroke="#000000" stroke-width="0.3" d="M "##, idx)?;
+        write!(w, r##"<path id="cut_{}" fill="none" stroke="{}" stroke-width="0.3" d="M "##, idx, cut_color_hex)?;
         for (i, p) in contour.iter().enumerate() {
             if i == 0 { write!(w, "{},{} ", p.x, p.y)?; } 
             else { write!(w, "L {},{} ", p.x, p.y)?; }
@@ -401,7 +374,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
 fn collect_texts(papercraft: &Papercraft, page: u32) -> Vec<PrintableText> {
     let options = papercraft.options();
     let page_size = Vector2::new(options.page_size.0, options.page_size.1);
-    let (margin_top, margin_left, margin_right, margin_bottom) = options.margin;
+    let (_margin_top, margin_left, margin_right, margin_bottom) = options.margin;
     let page_count = options.pages;
     
     let mut texts = Vec::new();
@@ -437,7 +410,7 @@ fn collect_texts(papercraft: &Papercraft, page: u32) -> Vec<PrintableText> {
         let in_page = options.is_in_page_fn(page);
         let edge_id_font_size = options.edge_id_font_size * 25.4 / 72.0; // pt to mm
         
-        for (i_island, island) in papercraft.islands() {
+        for (_i_island, island) in papercraft.islands() {
             // Island name
             let island_center = island.location();
             let (is_in, pos) = in_page(island_center);
@@ -469,7 +442,7 @@ fn html_escape(s: &str) -> String {
 // ============================================================================
 
 use lopdf::{
-    Document, Object, ObjectId, Stream, StringFormat,
+    Document, Object, Stream, StringFormat,
     content::{Content, Operation},
     dictionary,
     xref::XrefType,
@@ -578,9 +551,10 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
     
     // Draw faces as filled paths
     // Draw faces as filled paths
-    for (i_island, island) in papercraft.islands() {
+    // Draw faces as filled paths
+    for (_i_island, island) in papercraft.islands() {
         let island_mx = island.matrix();
-        let _ = papercraft.traverse_faces(island, |i_face, face, mx| {
+        let _ = papercraft.traverse_faces(island, |_i_face, face, mx| {
             let plane = papercraft.model().face_plane(face);
             let full_mx = island_mx * mx;
             

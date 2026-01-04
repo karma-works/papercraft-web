@@ -9,8 +9,10 @@
     "dev:backend": "cd backend && cargo run",
     "dev:frontend": "wait-on http://localhost:3000/api/status && cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
-    "test": "npm run test:integration",
-    "test:integration": "node tests/integration.js"
+    "docs:build": "asciidoctor docs/*.adoc && mkdir -p frontend/public/docs && cp -r docs/* frontend/public/docs/",
+    "test": "npm run test:integration && npm run test:browser",
+    "test:integration": "node tests/integration.js",
+    "test:browser": "node tests/browser_integration.js"
   },
   "repository": {
     "type": "git",
@@ -33,8 +35,11 @@
     "frontend"
   ],
   "devDependencies": {
+    "@asciidoctor/cli": "^4.0.0",
+    "asciidoctor": "^3.0.4",
     "concurrently": "^9.2.1",
     "kill-port": "^2.0.1",
+    "puppeteer": "^24.34.0",
     "wait-on": "^9.0.3"
   }
 }

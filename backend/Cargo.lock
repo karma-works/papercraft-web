@@ -2850,6 +2850,7 @@ dependencies = [
  "maybe-owned",
  "opener",
  "rayon",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

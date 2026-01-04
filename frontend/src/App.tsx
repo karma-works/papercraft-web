@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
-  ZoomIn, ZoomOut, Maximize2, Box,
-  MousePointer2, Hand, Undo2, Redo2
+  ZoomIn, ZoomOut, Maximize2, Box, Origami,
+  MousePointer2, Hand, Undo2, Redo2, HelpCircle
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
@@ -209,7 +209,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           <Link2 size={18} />
         </button>
       </div>
-      <div className="toolbar-group">
+      <div className="toolbar-group" title="Toggle Flaps (F)">
         <ToggleButton
           className={`toolbar-btn ${viewOptions.showFlaps ? 'active' : ''}`}
           isSelected={viewOptions.showFlaps}
@@ -1073,12 +1073,22 @@ export default function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">Papercraft Web</h1>
+        <h1 className="app-title">
+          <span className="app-logo"><Origami size={24} /></span>
+          Papercraft Web
+        </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <FileUpload onUpload={handleUpload} isLoading={isLoading} compact />
           <StatusIndicator connected={status.connected} hasModel={status.hasModel} />
         </div>
-        <div className="header-right">
+        <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            className="toolbar-btn"
+            onClick={() => window.open('/docs/index.html', '_blank')}
+            title="Open Documentation"
+          >
+            <HelpCircle size={20} />
+          </button>
         </div>
       </header>
 

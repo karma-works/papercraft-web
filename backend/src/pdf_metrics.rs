@@ -7,12 +7,14 @@ mod helvetica {
     include!(concat!(env!("OUT_DIR"), "/helvetica_afm.rs"));
 }
 
+#[allow(dead_code)]
 fn find_in_vec_tuple<V>(key: char, data: &[(char, V)]) -> Option<&V> {
     let i = data.binary_search_by_key(&key, |(a, _)| *a).ok()?;
     Some(&data[i].1)
 }
 
 /// Given a text returns the total width and a list of (kerning, glyph-id).
+#[allow(dead_code)]
 pub fn measure_helvetica(text: &str) -> (i32, Vec<(i64, u16)>) {
     let mut width = 0;
     let mut prev = '\u{0}';
