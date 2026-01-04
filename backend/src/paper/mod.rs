@@ -8,7 +8,7 @@ pub use types::*;
 
 use crate::util_3d::*;
 use serde::{
-    Deserialize, Serialize,
+    Deserialize,
     ser::{SerializeSeq, SerializeStruct},
 };
 use tr::tr;

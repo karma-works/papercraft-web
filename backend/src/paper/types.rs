@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::util_3d::Vector2;
 use cgmath::Rad;
 use crate::paper::{IslandKey, PaperOptions};
-use slotmap::Key;
+
 
 // Re-export ModelInfo since it's used in RenderablePapercraft but defined in model.rs
 // Note: We might need to handle circular deps if moved improperly, but types.rs is a leaf.
@@ -50,6 +50,7 @@ impl RenderableIsland {
     // Helper to keep struct definition clean above
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TextAlign {
     Near,
@@ -57,6 +58,7 @@ pub enum TextAlign {
     Far,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrintableText {
     pub text: String,

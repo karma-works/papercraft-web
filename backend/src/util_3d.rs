@@ -4,7 +4,9 @@ use std::f32::consts::PI;
 pub type Vector2 = cgmath::Vector2<f32>;
 pub type Vector3 = cgmath::Vector3<f32>;
 pub type Point2 = cgmath::Point2<f32>;
+#[allow(dead_code)]
 pub type Point3 = cgmath::Point3<f32>;
+#[allow(dead_code)]
 pub type Quaternion = cgmath::Quaternion<f32>;
 pub type Matrix2 = cgmath::Matrix2<f32>;
 pub type Matrix3 = cgmath::Matrix3<f32>;
@@ -171,6 +173,7 @@ pub fn bounding_box_2d(vs: impl IntoIterator<Item = Vector2>) -> (Vector2, Vecto
     (a, b)
 }
 
+#[allow(dead_code)]
 pub fn ray_crosses_face(ray: (Vector3, Vector3), vs: &[Vector3; 3]) -> Option<f32> {
     // Möller-Trumbore algorithm
 
@@ -210,6 +213,7 @@ pub fn ray_crosses_face(ray: (Vector3, Vector3), vs: &[Vector3; 3]) -> Option<f3
 }
 
 // Returns (offset0, offset1, distance2)
+#[allow(dead_code)]
 pub fn line_line_distance(line0: (Vector3, Vector3), line1: (Vector3, Vector3)) -> (f32, f32, f32) {
     let diff = line0.0 - line1.0;
     let line0d = line0.1 - line0.0;
@@ -243,6 +247,7 @@ pub fn line_line_distance(line0: (Vector3, Vector3), line1: (Vector3, Vector3)) 
     (l0_closest / len0, l1_closest / len1, distance2.abs())
 }
 
+#[allow(dead_code)]
 pub fn line_segment_distance(
     line0: (Vector3, Vector3),
     line1: (Vector3, Vector3),
@@ -279,6 +284,7 @@ pub fn point_line_side(p: Vector2, line: (Vector2, Vector2)) -> bool {
 }
 
 // (offset, distance)
+#[allow(dead_code)]
 pub fn point_segment_distance(p: Vector2, line: (Vector2, Vector2)) -> (f32, f32) {
     let (o, d) = point_line_distance(p, line);
     if o < 0.0 {
@@ -310,6 +316,7 @@ pub fn line_line_intersection(
     ((line_1.0 + s * s1), s, t)
 }
 
+#[allow(dead_code)]
 pub fn ortho2d(width: f32, height: f32) -> Matrix3 {
     let right = width / 2.0;
     let left = -right;
@@ -329,6 +336,7 @@ pub fn ortho2d(width: f32, height: f32) -> Matrix3 {
 }
 
 // Like ortho2d but aligned to the (0,0)
+#[allow(dead_code)]
 pub fn ortho2d_zero(width: f32, height: f32) -> Matrix3 {
     Matrix3::new(
         2.0 / width,

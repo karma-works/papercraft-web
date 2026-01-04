@@ -21,6 +21,9 @@ mod vector_export;
 mod util_3d;
 // mod util_gl;
 
+#[cfg(test)]
+mod svg_tests;
+
 use paper::{Papercraft, RenderablePapercraft, EdgeIndex, EdgeToggleFlapAction, FaceIndex, IslandKey, PaperOptions};
 use util_3d::Vector2;
 
