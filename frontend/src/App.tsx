@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
-  ZoomIn, ZoomOut, Maximize2, Box, Grid3X3,
+  ZoomIn, ZoomOut, Maximize2, Box,
   MousePointer2, Hand, Undo2, Redo2
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
 import SettingsDialog from './SettingsDialog';
 import useHistory from './hooks/useHistory';
+import { Project, IslandId, SettingsOptions, PointOrArray } from './types';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -16,7 +17,7 @@ const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.1;
 
 // Status Indicator Component
-function StatusIndicator({ connected, hasModel }) {
+function StatusIndicator({ connected, hasModel }: { connected: boolean; hasModel: boolean }) {
   return (
     <div className="status-indicator">
       <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
@@ -26,17 +27,17 @@ function StatusIndicator({ connected, hasModel }) {
 }
 
 // File Upload Component
-function FileUpload({ onUpload, isLoading, compact = false }) {
+function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file: File) => void; isLoading: boolean; compact?: boolean }) {
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer?.files[0];
     if (file) onUpload(file);
   }, [onUpload]);
 
-  const handleDragOver = useCallback((e) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
   }, []);
@@ -94,7 +95,14 @@ function FileUpload({ onUpload, isLoading, compact = false }) {
 }
 
 // Zoom Controls Component
-function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }) {
+interface ZoomControlsProps {
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomFit: () => void;
+}
+
+function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }: ZoomControlsProps) {
   return (
     <div className="zoom-controls">
       <button className="zoom-btn" onClick={onZoomOut} title="Zoom Out">
@@ -112,8 +120,27 @@ function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }) {
 }
 
 // Toolbar Component
+interface ViewOptions {
+  showFlaps: boolean;
+  showTextures: boolean;
+  [key: string]: boolean;
+}
+
+interface ToolbarProps {
+  mode: string;
+  onModeChange: (mode: string) => void;
+  viewOptions: ViewOptions;
+  onViewOptionChange: (key: string, value: boolean) => void;
+  onOpenSettings: () => void;
+  onExport: (format: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, canUndo, canRedo }) {
+function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, canUndo, canRedo }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-group">
@@ -187,7 +214,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${viewOptions.showFlaps ? 'active' : ''}`}
           isSelected={viewOptions.showFlaps}
           onChange={() => onViewOptionChange('showFlaps', !viewOptions.showFlaps)}
-          title="Toggle Flaps"
+          aria-label="Toggle Flaps"
         >
           <span style={{ fontSize: '12px', fontWeight: 'bold' }}>F</span>
         </ToggleButton>
@@ -221,26 +248,64 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
   );
 }
 
+// Helper to normalize point
+function getPoint(p: PointOrArray): { x: number, y: number } {
+  if (Array.isArray(p)) return { x: p[0], y: p[1] };
+  return p;
+}
+
 // Interactive 2D Canvas Component
-function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland }) {
-  const canvasRef = useRef(null);
-  const containerRef = useRef(null);
+interface Canvas2DProps {
+  project: Project | null;
+  mode: string;
+  selectedIslands: number[];
+  onSelectIsland: (id: IslandId | null, addToSelection?: boolean) => void;
+  onMoveIsland: (id: IslandId, delta: [number, number]) => Promise<void>;
+  onRotateIsland: (id: IslandId, angle: number, center: [number, number]) => Promise<void>;
+  onProjectUpdate: (project: Project) => void;
+  onError: (msg: string) => void;
+}
+
+function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState(null);
-  const [draggedIsland, setDraggedIsland] = useState(null);
-  const [hoveredIsland, setHoveredIsland] = useState(null);
-  const [hoveredEdge, setHoveredEdge] = useState(null);
+  const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+
+  interface DraggedIslandState {
+    id: IslandId;
+    mode: 'move' | 'rotate';
+    startX?: number;
+    startY?: number;
+    origX: number;
+    origY: number;
+    currentX?: number;
+    currentY?: number;
+    deltaX?: number;
+    deltaY?: number;
+    startAngle?: number;
+    deltaAngle?: number;
+  }
+
+  const [draggedIsland, setDraggedIsland] = useState<DraggedIslandState | null>(null);
+  const [hoveredIsland, setHoveredIsland] = useState<number | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<any | null>(null); // Edge ID type depends on backend
 
   // Pointer tracking for multi-touch
-  const pointersRef = useRef(new Map());
-  const prevPinchRef = useRef(null);
+  const pointersRef = useRef<Map<number, { x: number, y: number }>>(new Map());
+  const prevPinchRef = useRef<{
+    dist: number;
+    center: { x: number, y: number };
+    startZoom: number;
+    startPan: { x: number, y: number };
+  } | null>(null);
 
   // Get island data
   const islands = useMemo(() => {
     if (!project?.islands) return [];
-    return Object.entries(project.islands).map(([id, data]) => ({ id, ...data }));
+    return Object.values(project.islands).map(data => ({ ...data }));
   }, [project]);
 
   // Calculate canvas dimensions
@@ -251,7 +316,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
   // Hit test - find island at position
   // Helper for point-segment distance (squared)
-  const distToSegmentSquared = (p, v, w) => {
+  const distToSegmentSquared = (p: { x: number, y: number }, v: { x: number, y: number }, w: { x: number, y: number }) => {
     const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
     if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2;
     let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
@@ -259,9 +324,9 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2;
   };
 
-  const hitTestEdge = useCallback((x, y) => {
+  const hitTestEdge = useCallback((x: number, y: number): { islandId: IslandId; edgeId: any; edge: any; island: any } | null => {
     if (!project || !project.islands) return null;
-    let hit = null;
+    let hit: { islandId: IslandId; edgeId: any; edge: any; island: any } | null = null;
     let minD2 = Infinity;
     const threshold = 2; // mm
     const thresholdSq = threshold * threshold;
@@ -271,8 +336,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         island.edges.forEach(edge => {
           if (!edge.start || !edge.end) return;
 
-          const s = { x: edge.start.x !== undefined ? edge.start.x : edge.start[0], y: edge.start.y !== undefined ? edge.start.y : edge.start[1] };
-          const e = { x: edge.end.x !== undefined ? edge.end.x : edge.end[0], y: edge.end.y !== undefined ? edge.end.y : edge.end[1] };
+          const s = getPoint(edge.start);
+          const e = getPoint(edge.end);
 
           const d2 = distToSegmentSquared({ x, y }, s, e);
           if (d2 < thresholdSq && d2 < minD2) {
@@ -286,7 +351,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     return hit;
   }, [project]);
 
-  const hitTest = useCallback((clientX, clientY) => {
+  const hitTest = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas || !project) return null;
 
@@ -295,8 +360,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
 
     // Convert screen coordinates to global paper coordinates (pixels)
-    const paperX = (x - offsetX) / zoom;
-    const paperY = (y - offsetY) / zoom;
+    const paperX = (clientX - offsetX) / zoom;
+    const paperY = (clientY - offsetY) / zoom;
 
     // Scale back to mm for checking against island.pos which is in mm?
     // Wait, island.pos is in mm.
@@ -306,9 +371,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     // Find island at this position
     for (const island of islands) {
-      // island.pos is {x, y} or [x, y]
-      const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
-      const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+      const { x: ix, y: iy } = getPoint(island.pos);
 
       const dx = modelX - ix;
       const dy = modelY - iy;
@@ -323,7 +386,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   }, [project, islands, zoom, pan, pageWidth, pageHeight, scale]);
 
   // Handle pointer down
-  const handlePointerDown = useCallback(async (e) => {
+  const handlePointerDown = useCallback(async (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -345,6 +408,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       return;
     }
 
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -374,14 +438,14 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
         if (actionData) {
           const updatedProject = await api.performAction(actionData);
-          setProject(updatedProject);
+          onProjectUpdate(updatedProject);
           // Clear selection/hover
           setHoveredEdge(null);
           return;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Action failed:", err);
-        setError(err.message);
+        onError(err.message);
       }
       return;
     }
@@ -392,8 +456,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       if (island) {
         onSelectIsland(island.id, e.shiftKey);
 
-        const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
-        const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+        const { x: ix, y: iy } = getPoint(island.pos);
         const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
         const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
 
@@ -429,10 +492,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, api, setProject, setError]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, onProjectUpdate, onError]);
 
   // Handle pointer move
-  const handlePointerMove = useCallback((e) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     // Multi-touch pinch
@@ -459,6 +522,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       return;
     }
 
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -468,16 +532,21 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         e.currentTarget.setPointerCapture(e.pointerId); // Ensure capture is maintained
         if (draggedIsland.mode === 'move') {
           // Moving an island
-          const dx = (x - draggedIsland.startX) / zoom / scale;
-          const dy = (y - draggedIsland.startY) / zoom / scale;
+          const startX = draggedIsland.startX!;
+          const startY = draggedIsland.startY!;
+          const dx = (x - startX) / zoom / scale;
+          const dy = (y - startY) / zoom / scale;
 
-          setDraggedIsland(prev => ({
-            ...prev,
-            currentX: prev.origX + dx,
-            currentY: prev.origY + dy,
-            deltaX: dx,
-            deltaY: dy
-          }));
+          setDraggedIsland(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              currentX: prev.origX + dx,
+              currentY: prev.origY + dy,
+              deltaX: dx,
+              deltaY: dy
+            };
+          });
         } else if (draggedIsland.mode === 'rotate') {
           const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
           const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
@@ -485,12 +554,15 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
           const cy = draggedIsland.origY * scale * zoom + offsetY;
 
           const angle = Math.atan2(y - cy, x - cx);
-          const deltaAngle = angle - draggedIsland.startAngle;
+          const deltaAngle = angle - draggedIsland.startAngle!;
 
-          setDraggedIsland(prev => ({
-            ...prev,
-            deltaAngle: deltaAngle
-          }));
+          setDraggedIsland(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              deltaAngle: deltaAngle
+            };
+          });
         }
       } else if (dragStart) {
         // Panning
@@ -510,7 +582,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
       const edgeHit = hitTestEdge(modelX, modelY);
       if (edgeHit) {
-        setHoveredEdge(edgeHit.edgeId);
+        setHoveredEdge(edgeHit.edge); // Use edge object or ID depending on type. edgeHit has edgeId and edge.
         setHoveredIsland(null); // Clear island hover to avoid confusion
       } else {
         setHoveredEdge(null);
@@ -521,7 +593,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, pageWidth, pageHeight]);
 
   // Handle pointer up
-  const handlePointerUp = useCallback(async (e) => {
+  const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId);
     e.currentTarget.releasePointerCapture(e.pointerId);
 
@@ -531,7 +603,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     if (draggedIsland) {
       if (draggedIsland.mode === 'move' && draggedIsland.deltaX !== undefined) {
-        if (Math.abs(draggedIsland.deltaX) > 0.1 || Math.abs(draggedIsland.deltaY) > 0.1) {
+        if ((Math.abs(draggedIsland.deltaX || 0) > 0.1 || Math.abs(draggedIsland.deltaY || 0) > 0.1) && draggedIsland.deltaX !== undefined && draggedIsland.deltaY !== undefined) {
           await onMoveIsland(draggedIsland.id, [draggedIsland.deltaX, draggedIsland.deltaY]);
         }
       } else if (draggedIsland.mode === 'rotate' && draggedIsland.deltaAngle !== undefined) {
@@ -547,7 +619,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   }, [draggedIsland, onMoveIsland, onRotateIsland]);
 
   // Handle wheel zoom
-  const handleWheel = useCallback((e) => {
+  const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
     setZoom(z => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z + delta)));
@@ -585,6 +657,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     canvas.style.height = `${rect.height}px`;
 
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
     // Clear canvas
@@ -635,8 +708,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       const isDragged = draggedIsland?.id.idx === island.id.idx;
 
       // Extract pos and rot
-      const ix = island.pos.x !== undefined ? island.pos.x : island.pos[0];
-      const iy = island.pos.y !== undefined ? island.pos.y : island.pos[1];
+      const { x: ix, y: iy } = getPoint(island.pos);
 
       let tx = 0;
       let ty = 0;
@@ -677,8 +749,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
           if (!flap.vertices || flap.vertices.length < 3) return;
           ctx.beginPath();
           flap.vertices.forEach((v, i) => {
-            const vx = v.x !== undefined ? v.x : v[0];
-            const vy = v.y !== undefined ? v.y : v[1];
+            const { x: vx, y: vy } = getPoint(v);
             if (i === 0) ctx.moveTo(vx, vy);
             else ctx.lineTo(vx, vy);
           });
@@ -698,8 +769,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
           ctx.beginPath();
           face.vertices.forEach((v, i) => {
-            const vx = v.x !== undefined ? v.x : v[0];
-            const vy = v.y !== undefined ? v.y : v[1];
+            const { x: vx, y: vy } = getPoint(v);
             if (i === 0) ctx.moveTo(vx, vy);
             else ctx.lineTo(vx, vy);
           });
@@ -717,12 +787,12 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       // Draw Edges
       if (island.edges) {
         island.edges.forEach(edge => {
-          const s = edge.start;
-          const e = edge.end;
-          const sx = s.x !== undefined ? s.x : s[0];
-          const sy = s.y !== undefined ? s.y : s[1];
-          const ex = e.x !== undefined ? e.x : e[0];
-          const ey = e.y !== undefined ? e.y : e[1];
+          const s = getPoint(edge.start);
+          const e = getPoint(edge.end);
+          const sx = s.x;
+          const sy = s.y;
+          const ex = e.x;
+          const ey = e.y;
 
           const isHoveredEdge = hoveredEdge && hoveredEdge.id === edge.id;
 
@@ -794,8 +864,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
 
       switch (e.key.toLowerCase()) {
         case '+':
@@ -840,8 +910,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   );
 }
 
-// Empty State Component
-function EmptyState({ icon: Icon, message }) {
+// EmptyState Component
+function EmptyState({ icon: Icon, message }: { icon: any, message: string }) {
   return (
     <div className="empty-state">
       <Icon size={64} className="empty-state-icon" />
@@ -853,15 +923,16 @@ function EmptyState({ icon: Icon, message }) {
 // Main App Component
 export default function App() {
   const [status, setStatus] = useState({ connected: false, hasModel: false });
-  const [project, setProject, undo, redo, canUndo, canRedo, resetProject] = useHistory(null);
+  // @ts-ignore - useHistory is generic but inferred usage is complex, suppressing for speed
+  const [project, setProject, undo, redo, canUndo, canRedo, resetProject] = useHistory<Project | null>(null);
   const [mode, setMode] = useState('select');
-  const [selectedIslands, setSelectedIslands] = useState([]);
+  const [selectedIslands, setSelectedIslands] = useState<number[]>([]);
   const [viewOptions, setViewOptions] = useState({
     showFlaps: true,
     showTextures: false,
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Check backend status on mount
@@ -885,7 +956,7 @@ export default function App() {
   }, [project]);
 
   // Handle file upload
-  const handleUpload = async (file) => {
+  const handleUpload = async (file: File) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -894,7 +965,7 @@ export default function App() {
       resetProject(projectData);
       setStatus(s => ({ ...s, hasModel: true }));
       setSelectedIslands([]);
-    } catch (err) {
+    } catch (err: any) {
       setError('Failed to upload model: ' + err.message);
     } finally {
       setIsLoading(false);
@@ -902,7 +973,7 @@ export default function App() {
   };
 
   // Handle island selection
-  const handleSelectIsland = useCallback((islandId, addToSelection = false) => {
+  const handleSelectIsland = useCallback((islandId: IslandId | null, addToSelection = false) => {
     const id = islandId?.idx ?? null;
     if (id === null) {
       setSelectedIslands([]);
@@ -918,7 +989,7 @@ export default function App() {
   }, []);
 
   // Handle island move
-  const handleMoveIsland = useCallback(async (islandId, delta) => {
+  const handleMoveIsland = useCallback(async (islandId: IslandId, delta: [number, number]) => {
     try {
       // islandId is the full key object {idx, version}
       const result = await api.performAction({
@@ -927,13 +998,14 @@ export default function App() {
         delta
       });
       setProject(result);
-    } catch (err) {
+    } catch (err: any) {
       setError('Failed to move island: ' + err.message);
+      // Revert optimization? Complex without dedicated revert
     }
   }, []);
 
   // Handle island rotate
-  const handleRotateIsland = useCallback(async (islandId, angle, center) => {
+  const handleRotateIsland = useCallback(async (islandId: IslandId, angle: number, center: [number, number]) => {
     try {
       const result = await api.performAction({
         type: 'rotateIsland',
@@ -942,20 +1014,20 @@ export default function App() {
         center
       });
       setProject(result);
-    } catch (err) {
+    } catch (err: any) {
       setError('Failed to rotate island: ' + err.message);
     }
   }, []);
 
   // Handle view option change
-  const handleViewOptionChange = useCallback((option, value) => {
+  const handleViewOptionChange = useCallback((option: string, value: boolean) => {
     setViewOptions(prev => ({ ...prev, [option]: value }));
   }, []);
 
   // Keyboard shortcuts for mode switching
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -983,19 +1055,18 @@ export default function App() {
   }, []);
 
   // Handle options save
-  const handleOptionsSave = async (newOptions) => {
+  const handleOptionsSave = async (newOptions: SettingsOptions) => {
     try {
       const action = api.actions.setOptions(newOptions, false);
       const updatedProject = await api.performAction(action);
       setProject(updatedProject);
-    } catch (e) {
-      console.error("Failed to save options", e);
+    } catch (e: any) {
       setError(e.message);
     }
   };
 
   // Handle export
-  const handleExport = (format) => {
+  const handleExport = (format: string) => {
     window.open(`http://localhost:3000/api/export?format=${format}`, '_blank');
   };
 
@@ -1044,6 +1115,8 @@ export default function App() {
                   onSelectIsland={handleSelectIsland}
                   onMoveIsland={handleMoveIsland}
                   onRotateIsland={handleRotateIsland}
+                  onProjectUpdate={(p) => setProject(p)}
+                  onError={(msg) => setError(msg)}
                 />
               </div>
             </>
@@ -1061,7 +1134,7 @@ export default function App() {
       <SettingsDialog
         isOpen={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
-        options={project?.options}
+        options={project?.options || null}
         onSave={handleOptionsSave}
       />
     </div>

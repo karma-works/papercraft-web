@@ -3,15 +3,39 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Center, Environment } from '@react-three/drei';
 import * as THREE from 'three';
 
-const Model = ({ project }) => {
+interface Vertex {
+    p: number[];
+    n: number[];
+    t: number[];
+}
+
+interface Face {
+    m: number;
+    vs: number[];
+    es: number[];
+}
+
+interface ModelData {
+    vs: Vertex[];
+    fs: Face[];
+}
+
+interface Project {
+    model: ModelData | null;
+}
+
+interface Preview3DProps {
+    project: Project | null;
+}
+
+const Model: React.FC<{ project: Project }> = ({ project }) => {
     const geometry = useMemo(() => {
         if (!project || !project.model) return null;
 
         const { vs, fs } = project.model;
         if (!vs || !fs) return null;
 
-        const geometry = new THREE.BufferGeometry();
-        const positions = [];
+        const positions: number[] = [];
 
         // In our model structure:
         // vs is array of { p: [x,y,z], n: [x,y,z], t: [u,v] }
@@ -40,12 +64,13 @@ const Model = ({ project }) => {
         });
 
         const posAttr = new THREE.Float32BufferAttribute(positions, 3);
-        geometry.setAttribute('position', posAttr);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', posAttr);
 
         // Compute normals for lighting
-        geometry.computeVertexNormals();
+        geo.computeVertexNormals();
 
-        return geometry;
+        return geo;
 
     }, [project]);
 
@@ -74,7 +99,7 @@ const Model = ({ project }) => {
     );
 };
 
-export default function Preview3D({ project }) {
+export default function Preview3D({ project }: Preview3DProps) {
     return (
         <div className="w-full h-full bg-slate-900 rounded-lg overflow-hidden relative">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-black/50 text-white text-xs rounded pointer-events-none">
