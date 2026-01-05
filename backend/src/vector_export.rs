@@ -183,7 +183,6 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
                 let vertex = &papercraft.model()[i_vertex];
                 let v2d = plane.project(&vertex.pos(), scale);
                 let transformed = full_mx.transform_point(Point2::from_vec(v2d)).to_vec();
-                let transformed = full_mx.transform_point(Point2::from_vec(v2d)).to_vec();
                 
                 // Always convert to relative, no filtering
                 face_vertices.push(transformed - page_offset);
@@ -559,14 +558,10 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
     let paper_color = &options.paper_color;
     
     // Draw faces as filled paths
-    // Draw faces as filled paths
-    // Draw faces as filled paths
     for (_i_island, island) in papercraft.islands() {
         let island_mx = island.matrix();
         let _ = papercraft.traverse_faces(island, |_i_face, face, mx| {
             let plane = papercraft.model().face_plane(face);
-            let full_mx = island_mx * mx;
-            
             let full_mx = island_mx * mx;
             
             let vertices: Vec<_> = face.index_vertices()
@@ -574,7 +569,6 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
                 .map(|i_v| {
                     let v = &papercraft.model()[i_v];
                     let p2d = plane.project(&v.pos(), scale);
-                    full_mx.transform_point(Point2::from_vec(p2d)).to_vec()
                     full_mx.transform_point(Point2::from_vec(p2d)).to_vec()
                 })
                 .collect();
@@ -620,14 +614,6 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
         });
         let island_mx = island.matrix();
 
-        // Build Face -> Island matrix map
-        let mut face_matrices: std::collections::HashMap<crate::paper::FaceIndex, Matrix3> = std::collections::HashMap::new();
-        let _ = papercraft.traverse_faces(island, |i_face, _, mx| {
-            face_matrices.insert(i_face, *mx);
-            ControlFlow::Continue(())
-        });
-        let island_mx = island.matrix();
-
         let perimeter = papercraft.island_perimeter(i_island);
         if perimeter.is_empty() {
             continue;
@@ -646,15 +632,10 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
             let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::from_scale(1.0));
             let full_mx = island_mx * mx;
 
-            
-            let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::from_scale(1.0));
-            let full_mx = island_mx * mx;
-
             let (i_v0, _) = face.vertices_of_edge(peri.i_edge()).unwrap();
             let v0 = &papercraft.model()[i_v0];
             
             let p0_2d = plane.project(&v0.pos(), scale);
-            let p0 = full_mx.transform_point(Point2::from_vec(p0_2d)).to_vec();
             let p0 = full_mx.transform_point(Point2::from_vec(p0_2d)).to_vec();
             
             let (is_in, pos) = in_page(p0);
