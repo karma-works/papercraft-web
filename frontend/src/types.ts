@@ -20,14 +20,6 @@ export interface Edge {
     kind: string;
 }
 
-// 3D model edge (different from 2D papercraft edge)
-export interface ModelEdge {
-    f0: number;
-    f1: number | null;
-    v0: number;
-    v1: number;
-}
-
 export interface Flap {
     vertices: PointOrArray[];
 }
@@ -48,7 +40,6 @@ export interface Island {
 export interface ModelData {
     vs: Vertex[];
     fs: Face[];
-    es: ModelEdge[];
 }
 
 export interface SettingsOptions {
