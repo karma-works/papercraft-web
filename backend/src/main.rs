@@ -2,7 +2,7 @@ use axum::{
     routing::{get, post},
     Router,
     Json,
-    extract::{Query, State, Multipart},
+    extract::{Query, State, Multipart, DefaultBodyLimit},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -98,14 +98,31 @@ async fn upload_model(
                         file.write_all(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                     }
 
+                    eprintln!("Attempting to import file: {} ({} bytes)", file_name, data.len());
+                    eprintln!("Temp path: {:?}", temp_path);
+                    
                     let (project, _) = paper::import::import_model_file(&temp_path)
                         .map_err(|e| {
-                            eprintln!("Import error: {:?}", e);
+                            eprintln!("=== Import Error ===");
+                            eprintln!("File: {}", file_name);
+                            eprintln!("Size: {} bytes", data.len());
+                            eprintln!("Temp path: {:?}", temp_path);
+                            eprintln!("Error: {:?}", e);
+                            eprintln!("Error chain:");
+                            for (i, cause) in e.chain().enumerate() {
+                                eprintln!("  {}: {}", i, cause);
+                            }
+                            eprintln!("====================");
                             StatusCode::INTERNAL_SERVER_ERROR
                         })?;
                     
                     let mut state = state.lock().unwrap();
                     state.project = Some(project.clone());
+
+                    eprintln!("=== Import Success ===");
+                    eprintln!("File: {}", file_name);
+                    eprintln!("Islands: {}", project.islands().count());
+                    eprintln!("======================");
                     
                     return Ok(Json(project).into_response());
                 }
@@ -272,6 +289,7 @@ async fn serve(port: u16) {
         .route("/api/project", get(get_project))
         .route("/api/action", post(perform_action))
         .route("/api/export", get(export_file))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB
         .layer(CorsLayer::permissive())
         .with_state(state);
 

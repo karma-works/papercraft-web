@@ -1029,7 +1029,8 @@ export default function App() {
     showTextures: false,
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [, setError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isResizing, setIsResizing] = useState(false);
@@ -1117,19 +1118,25 @@ export default function App() {
   // Handle file upload
   const handleUpload = async (file: File) => {
     setIsLoading(true);
+    setUploadProgress(0);
     setError(null);
     try {
       console.log("Uploading file:", file.name, "size:", file.size);
-      const projectData = await api.uploadModel(file);
-      console.log("Upload successful, received project");
+      const projectData = await api.uploadModelWithProgress(file, (percent) => {
+        setUploadProgress(percent);
+      });
+      console.log("Upload successful, received project:", projectData);
       resetProject(projectData);
-      setStatus(s => ({ ...s, hasModel: true }));
+      setStatus({ connected: true, hasModel: true });
       setSelectedIslands([]);
+      setMode('select');
     } catch (err: any) {
       console.error("Upload failed details:", err);
       // Detailed error if possible
       let msg = err.message;
-      if (err.response) {
+      if (err.responseText) {
+        msg += " - " + err.responseText;
+      } else if (err.response) {
         try {
           const body = await err.response.text();
           console.error("Server response body:", body);
@@ -1141,6 +1148,7 @@ export default function App() {
       setError('Failed to upload model: ' + msg);
     } finally {
       setIsLoading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -1264,6 +1272,13 @@ export default function App() {
         </div>
       </header>
 
+      {error && (
+        <div className="error-banner">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>&times;</button>
+        </div>
+      )}
+
       <div className="main-content">
         <div className="toolbar-container">
           <Toolbar
@@ -1285,17 +1300,19 @@ export default function App() {
           ref={contentAreaRef}
           className="content-area"
           style={{
-            flexDirection: 'row',
             cursor: isResizing ? 'col-resize' : 'default'
           }}
         >
           {project ? (
             <>
-              <div className="preview-pane" style={{ flex: splitRatio }}>
-                {/* 3D Preview */}
+              <div
+                className="preview-pane"
+                style={window.innerWidth >= 768 ? { flex: splitRatio, minWidth: 0 } : {}}
+              >
                 <div className="preview-3d-container">
                   <Preview3D project={project} />
                 </div>
+                <div className="pane-label">3D Preview</div>
               </div>
 
               <div
@@ -1303,7 +1320,10 @@ export default function App() {
                 onPointerDown={handleResizeStart}
               />
 
-              <div className="canvas-pane" style={{ flex: 1 - splitRatio }}>
+              <div
+                className="canvas-pane"
+                style={window.innerWidth >= 768 ? { flex: 1 - splitRatio, minWidth: 0 } : { flex: 1 }}
+              >
                 <Canvas2D
                   project={project}
                   mode={mode}
@@ -1315,10 +1335,11 @@ export default function App() {
                   onProjectUpdate={(p) => setProject(p)}
                   onError={(msg) => setError(msg)}
                 />
+                <div className="pane-label">2D Template</div>
               </div>
             </>
           ) : (
-            <div className="empty-state-container">
+            <div className="empty-state-container" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState
                 icon={Box}
                 message="Upload a 3D model to start crafting"
@@ -1334,6 +1355,26 @@ export default function App() {
         options={project?.options || null}
         onSave={handleOptionsSave}
       />
+
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-box">
+            <div className="spinner" />
+            <p>Processing model...</p>
+            {uploadProgress > 0 && (
+              <div style={{ width: '100%', marginTop: '0.5rem' }}>
+                <div className="progress-bar-container">
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.2rem', textAlign: 'center' }}>{uploadProgress}%</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div >
   );
 }

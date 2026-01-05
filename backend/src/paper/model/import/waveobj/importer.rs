@@ -17,10 +17,15 @@ impl WaveObjImporter {
     pub fn new<R: BufRead>(f: R, file_name: &Path) -> Result<Self> {
         let (matlib, obj) = data::Model::from_reader(f)?;
         let matlib = match matlib {
-            Some(matlib) => Some(
-                data::solve_find_matlib_file(matlib.as_ref(), file_name)
-                    .ok_or_else(|| anyhow!("{} matlib not found", matlib))?,
-            ),
+            Some(matlib) => {
+                match data::solve_find_matlib_file(matlib.as_ref(), file_name) {
+                    Some(path) => Some(path),
+                    None => {
+                        eprintln!("Warning: {} matlib not found, proceeding without materials", matlib);
+                        None
+                    }
+                }
+            }
             None => None,
         };
         let mut texture_map = FxHashMap::default();
