@@ -17,7 +17,11 @@ export async function uploadModel(file: File): Promise<Project> {
         body: formData,
     });
 
-    if (!response.ok) throw new Error('Failed to upload model');
+    if (!response.ok) {
+        const error = new Error('Failed to upload model') as any;
+        error.response = response;
+        throw error;
+    }
     return response.json();
 }
 
@@ -39,7 +43,11 @@ export async function performAction(action: Action): Promise<Project> {
         body: JSON.stringify(action),
     });
 
-    if (!response.ok) throw new Error('Failed to perform action');
+    if (!response.ok) {
+        const error = new Error('Failed to perform action') as any;
+        error.response = response;
+        throw error;
+    }
     return response.json();
 }
 
@@ -80,5 +88,8 @@ export const actions = {
         type: 'setOptions',
         options,
         relocate_pieces: relocatePieces,
+    }),
+    packIslands: (): Action => ({
+        type: 'pack',
     }),
 };

@@ -660,6 +660,31 @@ label[data-selected] .checkbox svg {
   background: var(--color-bg-dark);
 }
 
+.resizer-h {
+  width: 2px;
+  cursor: col-resize;
+  background-color: var(--color-border);
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+}
+
+.resizer-h::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
+  z-index: 1;
+}
+
+.resizer-h:hover,
+.resizer-h:active {
+  background-color: var(--color-accent);
+}
+
 .preview-3d-container {
   width: 100%;
   height: 100%;

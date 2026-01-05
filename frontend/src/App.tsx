@@ -3,7 +3,7 @@ import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
   ZoomIn, ZoomOut, Maximize2, Box, Origami,
-  MousePointer2, Hand, Undo2, Redo2, HelpCircle
+  MousePointer2, Hand, Undo2, Redo2, HelpCircle, LayoutGrid
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
@@ -135,12 +135,13 @@ interface ToolbarProps {
   onExport: (format: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  onAction: (type: string, data: any) => void;
   canUndo: boolean;
   canRedo: boolean;
 }
 
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, canUndo, canRedo }: ToolbarProps) {
+function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, onAction, canUndo, canRedo }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-group">
@@ -252,6 +253,14 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
         >
           <Settings size={18} />
         </button>
+        <button
+          className="toolbar-btn"
+          onClick={() => onAction('pack', {})}
+          title="Auto-Pack Islands"
+          data-testid="auto-pack-btn"
+        >
+          <LayoutGrid size={18} />
+        </button>
       </div>
     </div>
   );
@@ -261,6 +270,19 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
 function getPoint(p: PointOrArray): { x: number, y: number } {
   if (Array.isArray(p)) return { x: p[0], y: p[1] };
   return p;
+}
+
+// Helper for point-in-polygon hit testing
+function isPointInPolygon(point: { x: number, y: number }, vs: { x: number, y: number }[]) {
+  const x = point.x, y = point.y;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i].x, yi = vs[i].y;
+    const xj = vs[j].x, yj = vs[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 // Interactive 2D Canvas Component
@@ -323,6 +345,14 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
   const scale = 2; // pixels per mm base scale
   const pageWidth = options ? options.page_size[0] * scale : 210 * scale;
   const pageHeight = options ? options.page_size[1] * scale : 297 * scale;
+  const PAGE_SEP = 10 * scale;
+
+  const pageCols = options?.page_cols || 1;
+  const pageCount = options?.pages || 1;
+  const pageRows = Math.ceil(pageCount / pageCols);
+
+  const totalWidth = options ? pageCols * pageWidth + (pageCols - 1) * PAGE_SEP : pageWidth;
+  const totalHeight = options ? pageRows * pageHeight + (pageRows - 1) * PAGE_SEP : pageHeight;
 
   // Hit test - find island at position
   // Helper for point-segment distance (squared)
@@ -366,33 +396,37 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     if (!canvas || !project) return null;
 
     const rect = canvas.getBoundingClientRect();
-    const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-    const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+    const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+    const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
-    // Convert screen coordinates to global paper coordinates (pixels)
     const paperX = (clientX - offsetX) / zoom;
     const paperY = (clientY - offsetY) / zoom;
-
-    // Scale back to mm for checking against island.pos which is in mm?
-    // Wait, island.pos is in mm.
-    // So convert paper coordinates to mm.
     const modelX = paperX / scale;
     const modelY = paperY / scale;
 
-    // Find island at this position
-    for (const island of islands) {
-      const { x: ix, y: iy } = getPoint(island.pos);
+    // Search backwards to select the top-most island
+    for (let i = islands.length - 1; i >= 0; i--) {
+      const island = islands[i];
+      if (!island.faces) continue;
 
+      for (const face of island.faces) {
+        if (!face.vertices) continue;
+        const vs = face.vertices.map(v => getPoint(v));
+        if (isPointInPolygon({ x: modelX, y: modelY }, vs)) {
+          return island;
+        }
+      }
+
+      // Still keep the origin hit test as a fallback or for small islands
+      const { x: ix, y: iy } = getPoint(island.pos);
       const dx = modelX - ix;
       const dy = modelY - iy;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      // Hit radius of 20mm
-      if (distance < 20) {
+      if (Math.sqrt(dx * dx + dy * dy) < 10) {
         return island;
       }
     }
-  }, [project, islands, zoom, pan, pageWidth, pageHeight, scale]);
+    return null;
+  }, [project, islands, zoom, pan, totalWidth, totalHeight, scale]);
 
   const performEdgeAction = useCallback(async (edge: any, altKey: boolean) => {
     console.log("Performing edge action:", edge, "Mode:", mode, "Alt:", altKey);
@@ -472,8 +506,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
         onSelectIsland(island.id, e.shiftKey);
 
         const { x: ix, y: iy } = getPoint(island.pos);
-        const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
-        const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+        const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
+        const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
         if (mode === 'move') {
           setDraggedIsland({
@@ -563,8 +597,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
             };
           });
         } else if (draggedIsland.mode === 'rotate') {
-          const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-          const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+          const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+          const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
           const cx = draggedIsland.origX * scale * zoom + offsetX;
           const cy = draggedIsland.origY * scale * zoom + offsetY;
 
@@ -588,24 +622,26 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
       }
     } else {
       // Hover detection
-      const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-      const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+      const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+      const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
-      // Convert screen coordinates to model coordinates (mm) for hitTestEdge
       const modelX = (x - offsetX) / (zoom * scale);
       const modelY = (y - offsetY) / (zoom * scale);
 
-      const edgeHit = hitTestEdge(modelX, modelY);
+      // Only interact with edges in cut/join modes, or if Alt is pressed
+      const canInteractWithEdges = mode === 'cut' || mode === 'join' || e.altKey;
+      const edgeHit = canInteractWithEdges ? hitTestEdge(modelX, modelY) : null;
+
       if (edgeHit) {
-        setHoveredEdge(edgeHit.edge); // Use edge object or ID depending on type. edgeHit has edgeId and edge.
-        setHoveredIsland(null); // Clear island hover to avoid confusion
+        setHoveredEdge(edgeHit.edge);
+        setHoveredIsland(null);
       } else {
         setHoveredEdge(null);
-        const island = hitTest(x, y); // Use screen coordinates for island hitTest
+        const island = hitTest(e.clientX, e.clientY);
         setHoveredIsland(island ? island.id.idx : null);
       }
     }
-  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, pageWidth, pageHeight]);
+  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, totalWidth, totalHeight, mode]);
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
@@ -653,8 +689,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
-    const scaleX = (rect.width - 40) / pageWidth;
-    const scaleY = (rect.height - 40) / pageHeight;
+    const scaleX = (rect.width - 40) / totalWidth;
+    const scaleY = (rect.height - 40) / totalHeight;
     setZoom(Math.min(scaleX, scaleY, 1));
     setPan({ x: 0, y: 0 });
   }, [pageWidth, pageHeight]);
@@ -680,8 +716,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     ctx.fillRect(0, 0, rect.width, rect.height);
 
     // Calculate offsets
-    const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-    const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+    const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+    const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
     // Draw grid
     ctx.save();
@@ -702,18 +738,45 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     }
     ctx.restore();
 
-    // Draw paper background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
-    ctx.strokeStyle = '#4a4a5e';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
+    // Draw all pages
+    for (let p = 0; p < pageCount; p++) {
+      const row = Math.floor(p / pageCols);
+      const col = p % pageCols;
+      const px = offsetX + col * (pageWidth + PAGE_SEP) * zoom;
+      const py = offsetY + row * (pageHeight + PAGE_SEP) * zoom;
 
-    // Clip to paper
+      // Draw paper background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(px, py, pageWidth * zoom, pageHeight * zoom);
+      ctx.strokeStyle = '#4a4a5e';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px, py, pageWidth * zoom, pageHeight * zoom);
+
+      // Page label
+      ctx.fillStyle = '#8e8e93';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Page ${p + 1}`, px + 5, py + 15);
+
+      // Draw margins
+      if (options?.margin) {
+        const [mt, ml, mr, mb] = options.margin;
+        ctx.save();
+        ctx.strokeStyle = '#d1d1d6';
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(
+          px + ml * scale * zoom,
+          py + mt * scale * zoom,
+          (pageWidth - (ml + mr) * scale) * zoom,
+          (pageHeight - (mt + mb) * scale) * zoom
+        );
+        ctx.restore();
+      }
+    }
+
+    // No clipping - allow islands to be seen between pages or if they overlap
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
-    ctx.clip();
 
     // Draw islands
     islands.forEach((island) => {
@@ -769,9 +832,10 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
             else ctx.lineTo(vx, vy);
           });
           ctx.closePath();
-          ctx.fillStyle = '#e5e7eb'; // light grey
+          // Use a more visible color for flaps (orange-ish/tan)
+          ctx.fillStyle = isSelected ? '#fed7aa' : '#ffedd5';
           ctx.fill();
-          ctx.strokeStyle = '#9ca3af'; // darker grey
+          ctx.strokeStyle = '#d97706'; // darker amber
           ctx.lineWidth = 0.5 / scale;
           ctx.stroke();
         });
@@ -967,6 +1031,68 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [isResizing, setIsResizing] = useState(false);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
+  // Expose loadModel to window for easier testing
+  useEffect(() => {
+    (window as any).loadModel = async (file: File) => {
+      console.log("Console: Loading model...", file.name);
+      await handleUpload(file);
+    };
+    return () => { delete (window as any).loadModel; };
+  }, [project]); // Re-bind if handleUpload depends on project (it does via resetProject)
+
+  const handleResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    console.log("Resizer: started");
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing || !contentAreaRef.current) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!contentAreaRef.current) return;
+      const rect = contentAreaRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = x / rect.width;
+      console.log("Resizer: moving, ratio =", ratio.toFixed(3));
+      setSplitRatio(Math.min(Math.max(ratio, 0.1), 0.9));
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      console.log("Resizer: finished");
+      setIsResizing(false);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (err) { }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isResizing]);
+
+  const performAction = async (type: string, _data: any) => {
+    try {
+      let action;
+      if (type === 'pack') {
+        action = api.actions.packIslands();
+      } else {
+        return;
+      }
+      const updatedProject = await api.performAction(action);
+      setProject(updatedProject);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   // Check backend status on mount
   useEffect(() => {
@@ -993,13 +1119,26 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      await api.uploadModel(file);
-      const projectData = await api.getProject();
+      console.log("Uploading file:", file.name, "size:", file.size);
+      const projectData = await api.uploadModel(file);
+      console.log("Upload successful, received project");
       resetProject(projectData);
       setStatus(s => ({ ...s, hasModel: true }));
       setSelectedIslands([]);
     } catch (err: any) {
-      setError('Failed to upload model: ' + err.message);
+      console.error("Upload failed details:", err);
+      // Detailed error if possible
+      let msg = err.message;
+      if (err.response) {
+        try {
+          const body = await err.response.text();
+          console.error("Server response body:", body);
+          msg += " - " + body;
+        } catch (e) {
+          console.error("Could not read error body", e);
+        }
+      }
+      setError('Failed to upload model: ' + msg);
     } finally {
       setIsLoading(false);
     }
@@ -1136,21 +1275,35 @@ export default function App() {
             onExport={handleExport}
             onUndo={undo}
             onRedo={redo}
+            onAction={performAction}
             canUndo={canUndo}
             canRedo={canRedo}
           />
         </div>
 
-        <div className="content-area">
+        <div
+          ref={contentAreaRef}
+          className="content-area"
+          style={{
+            flexDirection: 'row',
+            cursor: isResizing ? 'col-resize' : 'default'
+          }}
+        >
           {project ? (
             <>
-              <div className="preview-pane">
+              <div className="preview-pane" style={{ flex: splitRatio }}>
                 {/* 3D Preview */}
                 <div className="preview-3d-container">
                   <Preview3D project={project} />
                 </div>
               </div>
-              <div className="canvas-pane">
+
+              <div
+                className="resizer-h"
+                onPointerDown={handleResizeStart}
+              />
+
+              <div className="canvas-pane" style={{ flex: 1 - splitRatio }}>
                 <Canvas2D
                   project={project}
                   mode={mode}
@@ -1181,6 +1334,6 @@ export default function App() {
         options={project?.options || null}
         onSave={handleOptionsSave}
       />
-    </div>
+    </div >
   );
 }

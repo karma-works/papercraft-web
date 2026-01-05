@@ -577,6 +577,12 @@ impl Papercraft {
     pub fn islands(&self) -> impl Iterator<Item = (IslandKey, &Island)> + '_ {
         self.islands.iter()
     }
+    pub fn faces(&self) -> impl Iterator<Item = &Face> + '_ {
+        self.model.faces().map(|(_, f)| f)
+    }
+    pub fn edges(&self) -> impl Iterator<Item = &EdgeStatus> + '_ {
+        self.edges.iter()
+    }
     pub fn num_islands(&self) -> usize {
         self.islands.len()
     }
@@ -585,7 +591,7 @@ impl Papercraft {
         island: &Island,
         angle: Rad<f32>,
     ) -> (Vector2, Vector2) {
-        let mx = island.matrix() * Matrix3::from(Matrix2::from_angle(angle));
+        let mx = Matrix3::from(Matrix2::from_angle(angle));
         let mut vx = Vec::new();
         let _ = traverse_faces_ex(
             &self.model,
@@ -1526,7 +1532,6 @@ impl Papercraft {
         for (i_island, angle, bbox) in ordered_islands {
             let mut next_pos_x = pos_x + bbox.1.x - bbox.0.x;
             if next_pos_x > page_size.x && num_in_row > 0 {
-                next_pos_x -= pos_x;
                 pos_x = 0.0;
                 pos_y += row_height;
                 row_height = 0.0;
@@ -1536,6 +1541,7 @@ impl Papercraft {
                     page += 1;
                     zero = self.options().page_position(page) + page_margin;
                 }
+                next_pos_x = bbox.1.x - bbox.0.x;
             }
             let pos = Vector2::new(pos_x - bbox.0.x, pos_y - bbox.0.y);
             pos_x = next_pos_x;
@@ -1546,8 +1552,8 @@ impl Papercraft {
         }
         for (i_island, (angle, pos)) in positions {
             let island = self.island_by_key_mut(i_island).unwrap();
-            island.loc += pos;
-            island.rot += angle;
+            island.loc = pos; // Direct assignment instead of +=
+            island.rot = angle; // Direct assignment instead of +=
             island.recompute_matrix();
         }
         page + 1

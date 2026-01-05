@@ -26,6 +26,28 @@ mod svg_tests;
 
 use paper::{Papercraft, RenderablePapercraft, EdgeIndex, EdgeToggleFlapAction, FaceIndex, IslandKey, PaperOptions};
 use util_3d::Vector2;
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the web server
+    Serve {
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+    },
+    /// Import a model and print summary
+    Import {
+        /// Path to the model file (PDO, OBJ, STL, glTF)
+        path: std::path::PathBuf,
+    },
+}
 
 struct AppState {
     project: Option<Papercraft>,
@@ -46,6 +68,7 @@ enum Action {
     MoveIsland { island: IslandKey, delta: [f32; 2] },
     RotateIsland { island: IslandKey, angle: f32, center: [f32; 2] },
     SetOptions { options: PaperOptions, relocate_pieces: bool },
+    PackIslands,
 }
 
 async fn get_status(State(state): State<Arc<Mutex<AppState>>>) -> Json<Status> {
@@ -70,19 +93,21 @@ async fn upload_model(
                 if name == "file" {
                     let temp_dir = std::env::temp_dir();
                     let temp_path = temp_dir.join(&file_name);
-                    let mut file = std::fs::File::create(&temp_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                    file.write_all(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    {
+                        let mut file = std::fs::File::create(&temp_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        file.write_all(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    }
 
                     let (project, _) = paper::import::import_model_file(&temp_path)
                         .map_err(|e| {
-                            eprintln!("Import error: {}", e);
+                            eprintln!("Import error: {:?}", e);
                             StatusCode::INTERNAL_SERVER_ERROR
                         })?;
                     
                     let mut state = state.lock().unwrap();
-                    state.project = Some(project);
+                    state.project = Some(project.clone());
                     
-                    return Ok(Json("Uploaded").into_response());
+                    return Ok(Json(project).into_response());
                 }
             }
             Ok(None) => break,
@@ -135,6 +160,9 @@ async fn perform_action(
             }
             Action::SetOptions { options, relocate_pieces } => {
                 project.set_options(options, relocate_pieces);
+            }
+            Action::PackIslands => {
+                project.pack_islands();
             }
         }
         Ok(Json(project.renderable()))
@@ -193,6 +221,35 @@ async fn export_file(
 
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Import { path }) => {
+            println!("Importing model: {:?}", path);
+            match paper::import::import_model_file(&path) {
+                Ok((project, is_native)) => {
+                    println!("Successfully imported model.");
+                    println!("Native format: {}", is_native);
+                    println!("Islands: {}", project.num_islands());
+                    println!("Faces: {}", project.faces().count());
+                    println!("Edges: {}", project.edges().count());
+                }
+                Err(e) => {
+                    eprintln!("Import error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::Serve { port }) => {
+            serve(port).await;
+        }
+        None => {
+            serve(3000).await;
+        }
+    }
+}
+
+async fn serve(port: u16) {
     let mut initial_project = None;
     let sphere_path = std::path::Path::new("examples/sphere.pdo");
     if sphere_path.exists() {
@@ -218,7 +275,7 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("Backend listening on http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
