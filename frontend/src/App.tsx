@@ -267,9 +267,13 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
 }
 
 // Helper to normalize point
-function getPoint(p: PointOrArray): { x: number, y: number } {
-  if (Array.isArray(p)) return { x: p[0], y: p[1] };
-  return p;
+function getPoint(p: PointOrArray | null | undefined): { x: number, y: number } {
+  if (!p) return { x: 0, y: 0 };
+  if (Array.isArray(p)) return { x: p[0] ?? 0, y: p[1] ?? 0 };
+  if (typeof p === 'object' && 'x' in p && 'y' in p) {
+    return { x: p.x ?? 0, y: p.y ?? 0 };
+  }
+  return { x: 0, y: 0 };
 }
 
 // Helper for point-in-polygon hit testing
@@ -779,11 +783,12 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     ctx.save();
 
     // Draw islands
-    islands.forEach((island) => {
-      // Use idx for comparison
-      const isSelected = selectedIslands.includes(island.id.idx);
-      const isHovered = hoveredIsland === island.id.idx;
-      const isDragged = draggedIsland?.id.idx === island.id.idx;
+    islands.forEach((island, index) => {
+      // Use idx for comparison - handle different id formats
+      const islandIdx = island.id?.idx ?? (island as any).idx ?? index;
+      const isSelected = selectedIslands.includes(islandIdx);
+      const isHovered = hoveredIsland === islandIdx;
+      const isDragged = draggedIsland?.id?.idx === islandIdx || draggedIsland?.id === islandIdx;
 
       // Extract pos and rot
       const { x: ix, y: iy } = getPoint(island.pos);
