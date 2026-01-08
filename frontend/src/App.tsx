@@ -9,7 +9,7 @@ import * as api from './api/client';
 import Preview3D from './Preview3D';
 import SettingsDialog from './SettingsDialog';
 import useHistory from './hooks/useHistory';
-import { Project, IslandId, SettingsOptions, PointOrArray } from './types';
+import { Project, IslandId, Island, SettingsOptions, PointOrArray } from './types';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -46,7 +46,6 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
     setIsDragOver(false);
   }, []);
 
-  // Compact version for header/toolbar
   if (compact) {
     return (
       <FileTrigger
@@ -55,8 +54,9 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
           const file = files?.[0];
           if (file) onUpload(file);
         }}
+        data-testid="file-upload-trigger-compact"
       >
-        <Button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <Button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }} data-testid="load-model-btn">
           {isLoading ? <div className="spinner" style={{ width: 16, height: 16 }} /> : <Upload size={16} />}
           <span>Load Model</span>
         </Button>
@@ -70,6 +70,7 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      data-testid="file-upload-dropzone"
     >
       <div className="file-upload-icon">
         {isLoading ? <div className="spinner" /> : <Upload size={48} />}
@@ -85,8 +86,9 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
           const file = files?.[0];
           if (file) onUpload(file);
         }}
+        data-testid="file-upload-trigger"
       >
-        <Button className="btn btn-primary" style={{ marginTop: '1rem' }}>
+        <Button className="btn btn-primary" style={{ marginTop: '1rem' }} data-testid="browse-files-btn">
           Browse Files
         </Button>
       </FileTrigger>
@@ -309,6 +311,36 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+  const [redrawKey, setRedrawKey] = useState(0);
+
+  // Force redraw when project changes
+  useEffect(() => {
+    if (project) {
+      console.log("Canvas2D: project changed, status:", {
+        islands: project.islands?.length,
+        hasOptions: !!project.options,
+        pageSize: project.options?.page_size
+      });
+      if (project.islands && project.islands.length > 0) {
+        console.log("Canvas2D: First island sample:", project.islands[0]);
+      }
+      setRedrawKey(k => k + 1);
+      // Auto-fit on first load or significant change
+      handleZoomFit();
+    }
+  }, [project?.islands, project?.options]);
+
+  // ResizeObserver to handle container size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      setRedrawKey(k => k + 1);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   interface DraggedIslandState {
     id: IslandId;
@@ -339,10 +371,9 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
   } | null>(null);
 
   // Get island data
-  const islands = useMemo(() => {
-    if (!project?.islands) return [];
-    return Object.values(project.islands).map(data => ({ ...data }));
-  }, [project]);
+  // islands is an array from the backend - clone each entry to ensure new references
+  const islandsArray: Island[] = Array.isArray(project?.islands) ? project.islands : Object.values(project?.islands || {});
+  const islands = islandsArray.map((data: Island) => ({ ...data }));
 
   // Calculate canvas dimensions
   const options = project?.options;
@@ -723,6 +754,12 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
     const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
+    if (totalWidth === 0 || totalHeight === 0) {
+      console.warn("Canvas2D: dimensions are zero, skipping draw:", { totalWidth, totalHeight });
+      return;
+    }
+    console.log("Canvas2D: drawing frame. Pages:", pageCount, "Islands:", islands.length, "Zoom:", zoom.toFixed(3));
+
     // Draw grid
     ctx.save();
     ctx.strokeStyle = '#2a2a3e';
@@ -811,6 +848,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
       // Base transform to convert mm to canvas pixels (and paper offset)
       ctx.translate(offsetX, offsetY);
       ctx.scale(zoom * scale, zoom * scale);
+
+      console.log("Island data:", island);
 
       // Apply drag translation (in mm)
       if (tx !== 0 || ty !== 0) {
@@ -944,7 +983,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
     ctx.restore(); // Clip restore
 
-  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, viewOptions, pageWidth, pageHeight, scale]);
+  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, viewOptions, pageWidth, pageHeight, scale, redrawKey]);
 
   // Keyboard shortcuts (local to Canvas2D for edge interaction)
   useEffect(() => {
@@ -1041,14 +1080,55 @@ export default function App() {
   const [isResizing, setIsResizing] = useState(false);
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
+  // Handle file upload
+  const handleUpload = useCallback(async (file: File) => {
+    setIsLoading(true);
+    setUploadProgress(0);
+    setError(null);
+    try {
+      console.log("Uploading file:", file.name, "size:", file.size);
+      const projectData = await api.uploadModelWithProgress(file, (percent) => {
+        setUploadProgress(percent);
+      });
+      console.log("Upload successful, received project:", projectData);
+      resetProject(projectData);
+      setStatus({ connected: true, hasModel: true });
+      setSelectedIslands([]);
+      setMode('select');
+    } catch (err: any) {
+      console.error("Upload failed details:", err);
+      // Detailed error if possible
+      let msg = err.message;
+      if (err.responseText) {
+        msg += " - " + err.responseText;
+      } else if (err.response) {
+        try {
+          const body = await err.response.text();
+          console.error("Server response body:", body);
+          msg += " - " + body;
+        } catch (e) {
+          console.error("Could not read error body", e);
+        }
+      }
+      setError('Failed to upload model: ' + msg);
+    } finally {
+      setIsLoading(false);
+      setUploadProgress(0);
+    }
+  }, [resetProject]);
+
   // Expose loadModel to window for easier testing
   useEffect(() => {
     (window as any).loadModel = async (file: File) => {
       console.log("Console: Loading model...", file.name);
       await handleUpload(file);
     };
-    return () => { delete (window as any).loadModel; };
-  }, [project]); // Re-bind if handleUpload depends on project (it does via resetProject)
+    (window as any).project = project;
+    return () => {
+      delete (window as any).loadModel;
+      delete (window as any).project;
+    };
+  }, [project, handleUpload]);
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -1120,42 +1200,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [project]);
 
-  // Handle file upload
-  const handleUpload = async (file: File) => {
-    setIsLoading(true);
-    setUploadProgress(0);
-    setError(null);
-    try {
-      console.log("Uploading file:", file.name, "size:", file.size);
-      const projectData = await api.uploadModelWithProgress(file, (percent) => {
-        setUploadProgress(percent);
-      });
-      console.log("Upload successful, received project:", projectData);
-      resetProject(projectData);
-      setStatus({ connected: true, hasModel: true });
-      setSelectedIslands([]);
-      setMode('select');
-    } catch (err: any) {
-      console.error("Upload failed details:", err);
-      // Detailed error if possible
-      let msg = err.message;
-      if (err.responseText) {
-        msg += " - " + err.responseText;
-      } else if (err.response) {
-        try {
-          const body = await err.response.text();
-          console.error("Server response body:", body);
-          msg += " - " + body;
-        } catch (e) {
-          console.error("Could not read error body", e);
-        }
-      }
-      setError('Failed to upload model: ' + msg);
-    } finally {
-      setIsLoading(false);
-      setUploadProgress(0);
-    }
-  };
 
   // Handle island selection
   const handleSelectIsland = useCallback((islandId: IslandId | null, addToSelection = false) => {

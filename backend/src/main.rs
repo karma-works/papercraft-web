@@ -124,7 +124,7 @@ async fn upload_model(
                     eprintln!("Islands: {}", project.islands().count());
                     eprintln!("======================");
                     
-                    return Ok(Json(project).into_response());
+                    return Ok(Json(project.renderable()).into_response());
                 }
             }
             Ok(None) => break,
