@@ -39,7 +39,8 @@ const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMa
                         const v = vs[vIdx];
                         positions.push(...v.p);
                         normals.push(...v.n);
-                        uvs.push(v.t[0], v.t[1]);
+                        // Flip V coordinate: PDO/Pepakura uses different UV convention than WebGL
+                        uvs.push(v.t[0], 1.0 - v.t[1]);
                     });
                 }
             });
@@ -56,24 +57,42 @@ const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMa
 
     const showTextures = options?.texture ?? true;
 
+    // Debug: log texture info
+    console.log('TexturedModel render:', {
+        textureUrls,
+        loadedTextures,
+        indexMapEntries: Array.from(indexMap.entries()),
+        showTextures
+    });
+
     return (
         <group>
             {materialGroups.map(([matIdx, geometry]) => {
                 // Use indexMap to find the correct texture for this material index
                 const textureIdx = indexMap.get(matIdx);
-                const texture = textureIdx !== undefined ? loadedTextures[textureIdx] : undefined;
+                const texture = textureIdx !== undefined ? loadedTextures[textureIdx] : null;
+
+                console.log(`Material ${matIdx}: textureIdx=${textureIdx}, hasTexture=${!!texture}`);
+
                 if (texture) {
                     texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.needsUpdate = true;
                     if (options?.tex_filter === false) {
                         texture.minFilter = THREE.NearestFilter;
                         texture.magFilter = THREE.NearestFilter;
+                    } else {
+                        texture.minFilter = THREE.LinearMipmapLinearFilter;
+                        texture.magFilter = THREE.LinearFilter;
+                        texture.generateMipmaps = true;
                     }
                 }
 
                 return (
                     <mesh key={matIdx} geometry={geometry} castShadow receiveShadow>
                         <meshStandardMaterial
-                            map={showTextures ? texture : null}
+                            map={showTextures && texture ? texture : null}
                             color={showTextures && texture ? "#ffffff" : "#f0f0f0"}
                             side={THREE.DoubleSide}
                             flatShading={!showTextures}
