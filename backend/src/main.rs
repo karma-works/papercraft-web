@@ -2,7 +2,7 @@ use axum::{
     routing::{get, post},
     Router,
     Json,
-    extract::{Query, State, Multipart, DefaultBodyLimit},
+    extract::{Query, State, Multipart, DefaultBodyLimit, Path},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -188,6 +188,26 @@ async fn perform_action(
     }
 }
 
+async fn get_texture(
+    State(state): State<Arc<Mutex<AppState>>>,
+    Path(index): Path<usize>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let state = state.lock().unwrap();
+    let project = state.project.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    
+    let texture = project.model().textures().nth(index).ok_or(StatusCode::NOT_FOUND)?;
+    let pixbuf = texture.pixbuf().ok_or(StatusCode::NOT_FOUND)?;
+    
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    pixbuf.write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "image/png")],
+        buffer.into_inner(),
+    ))
+}
+
 #[derive(Deserialize)]
 struct ExportParams {
     format: String,  // "svg" or "pdf"
@@ -289,6 +309,7 @@ async fn serve(port: u16) {
         .route("/api/project", get(get_project))
         .route("/api/action", post(perform_action))
         .route("/api/export", get(export_file))
+        .route("/api/texture/:index", get(get_texture))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB
         .layer(CorsLayer::permissive())
         .with_state(state);

@@ -37,9 +37,15 @@ export interface Island {
     flaps?: Flap[];
 }
 
+export interface Texture {
+    file_name: string;
+    has_data: boolean;
+}
+
 export interface ModelData {
     vs: Vertex[];
     fs: Face[];
+    textures?: Texture[];
 }
 
 export interface SettingsOptions {
