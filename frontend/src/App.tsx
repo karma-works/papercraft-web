@@ -1002,26 +1002,13 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
       // Draw Faces
       if (island.faces) {
-        island.faces.forEach((face, faceIdx) => {
+        island.faces.forEach((face) => {
           if (!face.vertices || face.vertices.length < 3) return;
 
           const texture = textures[face.m];
           const showTexturesForFace = viewOptions.showTextures && texture && texture.complete && texture.naturalWidth > 0;
 
-          // Debug: log first face only once per frame
-          if (faceIdx === 0 && index === 0) {
-            console.log('2D Texture Debug:', {
-              'face.m': face.m,
-              'textures.length': textures.length,
-              'texture': texture,
-              'texture?.complete': texture?.complete,
-              'texture?.naturalWidth': texture?.naturalWidth,
-              'viewOptions.showTextures': viewOptions.showTextures,
-              'showTexturesForFace': showTexturesForFace,
-              'face.vs': face.vs,
-              'hasModel': !!project.model
-            });
-          }
+
 
           if (showTexturesForFace) {
             const img = texture;
@@ -1039,16 +1026,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
                 const p1 = getPoint(face.vertices[i]);
                 const p2 = getPoint(face.vertices[i + 1]);
 
-                // Debug: log first textured triangle
-                if (faceIdx === 0 && i === 1) {
-                  console.log('Drawing textured triangle:', {
-                    p0, p1, p2,
-                    uv0: { u: v0.t[0], v: 1.0 - v0.t[1] },
-                    uv1: { u: v1.t[0], v: 1.0 - v1.t[1] },
-                    uv2: { u: v2.t[0], v: 1.0 - v2.t[1] },
-                    imgSize: { w: img.naturalWidth, h: img.naturalHeight }
-                  });
-                }
+
 
                 // Flip V coordinate: PDO uses different UV convention
                 drawTexturedTriangle(
@@ -1563,7 +1541,8 @@ export default function App() {
 
   // Handle export
   const handleExport = (format: string) => {
-    window.open(`http://localhost:3000/api/export?format=${format}`, '_blank');
+    const textureParam = viewOptions.showTextures ? '&textures=true' : '&textures=false';
+    window.open(`http://localhost:3000/api/export?format=${format}${textureParam}`, '_blank');
   };
 
   return (

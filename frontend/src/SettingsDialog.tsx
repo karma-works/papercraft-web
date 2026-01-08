@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Button, Dialog, DialogTrigger, Heading, Modal, Label, Input, Checkbox } from 'react-aria-components';
+import { Button, Dialog, DialogTrigger, Heading, Modal, Label, Input } from 'react-aria-components';
 import { X } from 'lucide-react';
 import { SettingsOptions } from './types';
 
@@ -117,20 +117,6 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                                     <Input type="number" value={formData.margin[2].toString()} onChange={e => handleMarginChange(2, e.target.value)} title="Right" />
                                     <Input type="number" value={formData.margin[3].toString()} onChange={e => handleMarginChange(3, e.target.value)} title="Bottom" />
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="form-section">
-                            <h3>Appearance</h3>
-                            <div className="form-group checkbox-group">
-                                <Checkbox isSelected={formData.texture} onChange={v => handleChange('texture', v)}>
-                                    <div className="checkbox">
-                                        <svg viewBox="0 0 18 18" aria-hidden="true">
-                                            <polyline points="1 9 7 14 15 4" />
-                                        </svg>
-                                    </div>
-                                    Show Textures
-                                </Checkbox>
                             </div>
                         </div>
 

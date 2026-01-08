@@ -212,6 +212,7 @@ async fn get_texture(
 struct ExportParams {
     format: String,  // "svg" or "pdf"
     page: Option<u32>,  // For SVG: specific page, None = all pages
+    textures: Option<bool>,  // Whether to include textures in export
 }
 
 async fn export_file(

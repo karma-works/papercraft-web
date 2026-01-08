@@ -1365,10 +1365,9 @@ impl Papercraft {
                                     // p1->p2 is based on (v1, v2) returned by face.vertices_of_edge(i_edge).
                                     // face.vertices_of_edge returns (v_current, v_next) in CCW order.
                                     // So p1->p2 is CCW along the face perimeter.
-                                    // The Normal (-y, x) points INWARDS to the face.
-                                    // We want OUTWARDS, so (y, -x).
+                                    // For CCW winding, perpendicular pointing OUTWARD is (-y, x)
                                     
-                                    let normal = Vector2::new(edge_vec.y, -edge_vec.x).normalize();
+                                    let normal = Vector2::new(-edge_vec.y, edge_vec.x).normalize();
                                     
                                     let flap_width = self.options.flap_width.min(edge_len * 0.4);
                                     let taper = 0.15;
