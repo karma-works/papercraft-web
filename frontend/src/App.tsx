@@ -1598,7 +1598,7 @@ export default function App() {
                 style={window.innerWidth >= 768 ? { flex: splitRatio, minWidth: 0 } : {}}
               >
                 <div className="preview-3d-container">
-                  <Preview3D project={project} />
+                  <Preview3D project={project} showTextures={viewOptions.showTextures} />
                 </div>
                 <div className="pane-label">3D Preview</div>
               </div>

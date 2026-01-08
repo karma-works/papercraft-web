@@ -6,10 +6,11 @@ import { Project, Face } from './types';
 
 interface Preview3DProps {
     project: Project | null;
+    showTextures?: boolean;
 }
 
 // Inner component that uses useLoader (requires Suspense)
-const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMap: Map<number, number> }> = ({ project, textureUrls, indexMap }) => {
+const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMap: Map<number, number>; showTextures: boolean }> = ({ project, textureUrls, indexMap, showTextures }) => {
     const { model, options } = project;
     if (!model) return null;
     const { vs, fs } = model;
@@ -55,15 +56,6 @@ const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMa
         return Array.from(groups.entries());
     }, [vs, fs]);
 
-    const showTextures = options?.texture ?? true;
-
-    // Debug: log texture info
-    console.log('TexturedModel render:', {
-        textureUrls,
-        loadedTextures,
-        indexMapEntries: Array.from(indexMap.entries()),
-        showTextures
-    });
 
     return (
         <group>
@@ -71,8 +63,6 @@ const TexturedModel: React.FC<{ project: Project; textureUrls: string[]; indexMa
                 // Use indexMap to find the correct texture for this material index
                 const textureIdx = indexMap.get(matIdx);
                 const texture = textureIdx !== undefined ? loadedTextures[textureIdx] : null;
-
-                console.log(`Material ${matIdx}: textureIdx=${textureIdx}, hasTexture=${!!texture}`);
 
                 if (texture) {
                     texture.colorSpace = THREE.SRGBColorSpace;
@@ -159,7 +149,7 @@ const UntexturedModel: React.FC<{ project: Project }> = ({ project }) => {
     );
 };
 
-const Model: React.FC<{ project: Project }> = ({ project }) => {
+const Model: React.FC<{ project: Project; showTextures: boolean }> = ({ project, showTextures }) => {
     const { model } = project;
     if (!model) return null;
 
@@ -179,19 +169,19 @@ const Model: React.FC<{ project: Project }> = ({ project }) => {
         return { urls, indexMap };
     }, [model.textures]);
 
-    // If no textures with data, render without Suspense requirements
-    if (textureData.urls.length === 0) {
+    // If no textures with data or textures disabled, render without Suspense requirements
+    if (textureData.urls.length === 0 || !showTextures) {
         return <UntexturedModel project={project} />;
     }
 
     return (
         <Suspense fallback={<UntexturedModel project={project} />}>
-            <TexturedModel project={project} textureUrls={textureData.urls} indexMap={textureData.indexMap} />
+            <TexturedModel project={project} textureUrls={textureData.urls} indexMap={textureData.indexMap} showTextures={showTextures} />
         </Suspense>
     );
 };
 
-export default function Preview3D({ project }: Preview3DProps) {
+export default function Preview3D({ project, showTextures = true }: Preview3DProps) {
     return (
         <div className="w-full h-full bg-slate-900 rounded-lg overflow-hidden relative">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-black/50 text-white text-xs rounded pointer-events-none">
@@ -211,7 +201,7 @@ export default function Preview3D({ project }: Preview3DProps) {
                 }>
                     <Center top>
                         {project && project.model ? (
-                            <Model project={project} />
+                            <Model project={project} showTextures={showTextures} />
                         ) : (
                             <mesh>
                                 <boxGeometry args={[1, 1, 1]} />
