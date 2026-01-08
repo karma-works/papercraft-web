@@ -360,16 +360,20 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [redrawKey, setRedrawKey] = useState(0);
-  const [textures, setTextures] = useState<HTMLImageElement[]>([]);
+  const [textures, setTextures] = useState<(HTMLImageElement | null)[]>([]);
 
-  // Load textures
+  // Load textures - only load textures that have actual data
   useEffect(() => {
     if (project?.model?.textures) {
-      const loaded = project.model.textures.map((_, i) => {
+      const loaded: (HTMLImageElement | null)[] = project.model.textures.map((tex, i) => {
+        if (!tex.has_data) {
+          return null; // No data for this texture
+        }
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.src = `http://localhost:3000/api/texture/${i}`;
         img.onload = () => setRedrawKey(k => k + 1);
+        img.onerror = () => console.error(`Failed to load texture ${i}`);
         return img;
       });
       setTextures(loaded);
@@ -473,9 +477,15 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     const w = img.naturalWidth;
     const h = img.naturalHeight;
 
-    const u0 = t0.u * w, v0 = t0.v * h;
-    const u1 = t1.u * w, v1 = t1.v * h;
-    const u2 = t2.u * w, v2 = t2.v * h;
+    // Normalize UVs to [0, 1] range (handle wrapping like THREE.RepeatWrapping)
+    const wrapUV = (uv: number) => {
+      const wrapped = uv % 1;
+      return wrapped < 0 ? wrapped + 1 : wrapped;
+    };
+
+    const u0 = wrapUV(t0.u) * w, v0 = wrapUV(t0.v) * h;
+    const u1 = wrapUV(t1.u) * w, v1 = wrapUV(t1.v) * h;
+    const u2 = wrapUV(t2.u) * w, v2 = wrapUV(t2.v) * h;
 
     ctx.save();
     ctx.beginPath();
@@ -992,29 +1002,61 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
       // Draw Faces
       if (island.faces) {
-        island.faces.forEach(face => {
+        island.faces.forEach((face, faceIdx) => {
           if (!face.vertices || face.vertices.length < 3) return;
 
-          const showTextures = viewOptions.showTextures && textures[face.m];
-          if (showTextures) {
-            const img = textures[face.m];
+          const texture = textures[face.m];
+          const showTexturesForFace = viewOptions.showTextures && texture && texture.complete && texture.naturalWidth > 0;
+
+          // Debug: log first face only once per frame
+          if (faceIdx === 0 && index === 0) {
+            console.log('2D Texture Debug:', {
+              'face.m': face.m,
+              'textures.length': textures.length,
+              'texture': texture,
+              'texture?.complete': texture?.complete,
+              'texture?.naturalWidth': texture?.naturalWidth,
+              'viewOptions.showTextures': viewOptions.showTextures,
+              'showTexturesForFace': showTexturesForFace,
+              'face.vs': face.vs,
+              'hasModel': !!project.model
+            });
+          }
+
+          if (showTexturesForFace) {
+            const img = texture;
             const indices = face.vs; // Indices into project.model.vs
-            if (project.model) {
+            if (project.model && indices && indices.length >= 3) {
               for (let i = 1; i < indices.length - 1; i++) {
                 const v0 = project.model.vs[indices[0]];
                 const v1 = project.model.vs[indices[i]];
                 const v2 = project.model.vs[indices[i + 1]];
 
+                if (!v0 || !v1 || !v2) continue;
+
+                // Get 2D positions from face.vertices (already in model mm units from backend)
                 const p0 = getPoint(face.vertices[0]);
                 const p1 = getPoint(face.vertices[i]);
                 const p2 = getPoint(face.vertices[i + 1]);
 
+                // Debug: log first textured triangle
+                if (faceIdx === 0 && i === 1) {
+                  console.log('Drawing textured triangle:', {
+                    p0, p1, p2,
+                    uv0: { u: v0.t[0], v: 1.0 - v0.t[1] },
+                    uv1: { u: v1.t[0], v: 1.0 - v1.t[1] },
+                    uv2: { u: v2.t[0], v: 1.0 - v2.t[1] },
+                    imgSize: { w: img.naturalWidth, h: img.naturalHeight }
+                  });
+                }
+
+                // Flip V coordinate: PDO uses different UV convention
                 drawTexturedTriangle(
                   ctx, img,
                   p0, p1, p2,
-                  { u: v0.t[0], v: v0.t[1] },
-                  { u: v1.t[0], v: v1.t[1] },
-                  { u: v2.t[0], v: v2.t[1] }
+                  { u: v0.t[0], v: 1.0 - v0.t[1] },
+                  { u: v1.t[0], v: 1.0 - v1.t[1] },
+                  { u: v2.t[0], v: 1.0 - v2.t[1] }
                 );
               }
             }
@@ -1029,7 +1071,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
           ctx.closePath();
 
           // Style
-          if (!showTextures) {
+          if (!showTexturesForFace) {
             ctx.fillStyle = isSelected ? '#e0e7ff' : (isHovered ? '#f3f4f6' : '#ffffff');
             ctx.fill();
           }
@@ -1203,7 +1245,7 @@ export default function App() {
   const [selectedIslands, setSelectedIslands] = useState<number[]>([]);
   const [viewOptions, setViewOptions] = useState({
     showFlaps: true,
-    showTextures: false,
+    showTextures: true,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);

@@ -1287,6 +1287,8 @@ impl Papercraft {
                     renderable_faces.push(RenderableFace {
                         id: i_face,
                         vertices: vertices.clone(),
+                        m: usize::from(face.material()) as u32,
+                        vs: face.index_vertices().iter().map(|v| usize::from(*v) as u32).collect(),
                     });
 
                     // Collect edges and flaps for this face
