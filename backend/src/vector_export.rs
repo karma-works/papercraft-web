@@ -136,6 +136,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
     let scale = options.scale;
 
     // Collect data
+    // Collect data
     let mut faces_data: Vec<(IslandKey, Vec<Vector2>)> = Vec::new();
     let mut cut_paths: Vec<Vec<Vector2>> = Vec::new();
     let mut mountain_lines: Vec<(Vector2, Vector2)> = Vec::new();
@@ -253,10 +254,13 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         });
 
         // 5. Collect Flaps
+        // 5. Collect Flaps
         if options.flap_style != FlapStyle::None {
             for peri in papercraft.island_perimeter(i_island).iter() {
                 let edge_status = papercraft.edge_status(peri.i_edge());
                 if let EdgeStatus::Cut(flap_side) = edge_status {
+                    if !flap_side.flap_visible(peri.face_sign()) { continue; }
+
                     if !flap_side.flap_visible(peri.face_sign()) { continue; }
 
                     let edge = &papercraft.model()[peri.i_edge()];
@@ -304,6 +308,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         if vertices.len() >= 3 {
             write!(w, r#"<polygon id="face_{}" fill="{}" stroke="none" points=""#, idx, paper_color_hex)?;
             for v in vertices { write!(w, "{},{} ", v.x, v.y)?; }
+            for v in vertices { write!(w, "{},{} ", v.x, v.y)?; }
             writeln!(w, r#""/>"#)?;
         }
     }
@@ -342,6 +347,8 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
         for (i, p) in contour.iter().enumerate() {
             if i == 0 { write!(w, "{},{} ", p.x, p.y)?; } 
             else { write!(w, "L {},{} ", p.x, p.y)?; }
+            if i == 0 { write!(w, "{},{} ", p.x, p.y)?; } 
+            else { write!(w, "L {},{} ", p.x, p.y)?; }
         }
         writeln!(w, r#"Z"/>"#)?;
     }
@@ -359,6 +366,7 @@ fn write_svg_layers(papercraft: &Papercraft, page: u32, w: &mut impl Write) -> R
             };
             let angle_deg = text.angle.0.to_degrees();
             if angle_deg.abs() < 0.01 {
+                writeln!(w, r#"<text x="{}" y="{}" style="{}font-size:{}px;font-family:sans-serif;fill:#000000">{}</text>"#, text.pos.x, text.pos.y, anchor, text.size, html_escape(&text.text))?;
                 writeln!(w, r#"<text x="{}" y="{}" style="{}font-size:{}px;font-family:sans-serif;fill:#000000">{}</text>"#, text.pos.x, text.pos.y, anchor, text.size, html_escape(&text.text))?;
             } else {
                 writeln!(w, r#"<text x="{}" y="{}" style="{}font-size:{}px;font-family:sans-serif;fill:#000000" transform="rotate({} {} {})">{}</text>"#, text.pos.x, text.pos.y, anchor, text.size, angle_deg, text.pos.x, text.pos.y, html_escape(&text.text))?;
@@ -549,8 +557,6 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
     // Get paper color
     let paper_color = &options.paper_color;
     
-    // Draw faces as filled paths
-    // Draw faces as filled paths
     // Draw faces as filled paths
     for (_i_island, island) in papercraft.islands() {
         let island_mx = island.matrix();

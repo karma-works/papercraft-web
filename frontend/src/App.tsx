@@ -3,13 +3,13 @@ import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
   ZoomIn, ZoomOut, Maximize2, Box, Origami,
-  MousePointer2, Hand, Undo2, Redo2, HelpCircle
+  MousePointer2, Hand, Undo2, Redo2, HelpCircle, LayoutGrid
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
 import SettingsDialog from './SettingsDialog';
 import useHistory from './hooks/useHistory';
-import { Project, IslandId, SettingsOptions, PointOrArray } from './types';
+import { Project, IslandId, Island, SettingsOptions, PointOrArray } from './types';
 
 // Constants
 const MIN_ZOOM = 0.1;
@@ -46,7 +46,6 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
     setIsDragOver(false);
   }, []);
 
-  // Compact version for header/toolbar
   if (compact) {
     return (
       <FileTrigger
@@ -55,8 +54,9 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
           const file = files?.[0];
           if (file) onUpload(file);
         }}
+        data-testid="file-upload-trigger-compact"
       >
-        <Button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <Button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }} data-testid="load-model-btn">
           {isLoading ? <div className="spinner" style={{ width: 16, height: 16 }} /> : <Upload size={16} />}
           <span>Load Model</span>
         </Button>
@@ -70,6 +70,7 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      data-testid="file-upload-dropzone"
     >
       <div className="file-upload-icon">
         {isLoading ? <div className="spinner" /> : <Upload size={48} />}
@@ -85,8 +86,9 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
           const file = files?.[0];
           if (file) onUpload(file);
         }}
+        data-testid="file-upload-trigger"
       >
-        <Button className="btn btn-primary" style={{ marginTop: '1rem' }}>
+        <Button className="btn btn-primary" style={{ marginTop: '1rem' }} data-testid="browse-files-btn">
           Browse Files
         </Button>
       </FileTrigger>
@@ -105,11 +107,11 @@ interface ZoomControlsProps {
 function ZoomControls({ zoom, onZoomIn, onZoomOut, onZoomFit }: ZoomControlsProps) {
   return (
     <div className="zoom-controls">
-      <button className="zoom-btn" onClick={onZoomOut} title="Zoom Out">
+      <button className="zoom-btn" onClick={onZoomOut} title="Zoom Out" data-testid="zoom-out-btn">
         <ZoomOut size={16} />
       </button>
       <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-      <button className="zoom-btn" onClick={onZoomIn} title="Zoom In">
+      <button className="zoom-btn" onClick={onZoomIn} title="Zoom In" data-testid="zoom-in-btn">
         <ZoomIn size={16} />
       </button>
       <button className="zoom-btn" onClick={onZoomFit} title="Fit to View">
@@ -135,12 +137,13 @@ interface ToolbarProps {
   onExport: (format: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  onAction: (type: string, data: any) => void;
   canUndo: boolean;
   canRedo: boolean;
 }
 
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, canUndo, canRedo }: ToolbarProps) {
+function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, onAction, canUndo, canRedo }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-group">
@@ -149,6 +152,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
+          data-testid="undo-btn"
         >
           <Undo2 size={18} style={{ opacity: canUndo ? 1 : 0.3 }} />
         </button>
@@ -157,6 +161,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
+          data-testid="redo-btn"
         >
           <Redo2 size={18} style={{ opacity: canRedo ? 1 : 0.3 }} />
         </button>
@@ -166,6 +171,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'select' ? 'active' : ''}`}
           onClick={() => onModeChange('select')}
           title="Select (V)"
+          data-testid="mode-select-btn"
         >
           <MousePointer2 size={18} />
         </button>
@@ -173,6 +179,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'pan' ? 'active' : ''}`}
           onClick={() => onModeChange('pan')}
           title="Pan (H)"
+          data-testid="mode-pan-btn"
         >
           <Hand size={18} />
         </button>
@@ -182,6 +189,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'move' ? 'active' : ''}`}
           onClick={() => onModeChange('move')}
           title="Move Islands (M)"
+          data-testid="mode-move-btn"
         >
           <Move size={18} />
         </button>
@@ -189,6 +197,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'rotate' ? 'active' : ''}`}
           onClick={() => onModeChange('rotate')}
           title="Rotate Islands (R)"
+          data-testid="mode-rotate-btn"
         >
           <RotateCw size={18} />
         </button>
@@ -198,6 +207,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'cut' ? 'active' : ''}`}
           onClick={() => onModeChange('cut')}
           title="Cut Edge (C)"
+          data-testid="mode-cut-btn"
         >
           <Scissors size={18} />
         </button>
@@ -205,6 +215,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           className={`toolbar-btn ${mode === 'join' ? 'active' : ''}`}
           onClick={() => onModeChange('join')}
           title="Join Edges (J)"
+          data-testid="mode-join-btn"
         >
           <Link2 size={18} />
         </button>
@@ -215,6 +226,7 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           isSelected={viewOptions.showFlaps}
           onChange={() => onViewOptionChange('showFlaps', !viewOptions.showFlaps)}
           aria-label="Toggle Flaps"
+          data-testid="toggle-flaps-btn"
         >
           <span style={{ fontSize: '12px', fontWeight: 'bold' }}>F</span>
         </ToggleButton>
@@ -243,21 +255,47 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
         >
           <Settings size={18} />
         </button>
+        <button
+          className="toolbar-btn"
+          onClick={() => onAction('pack', {})}
+          title="Auto-Pack Islands"
+          data-testid="auto-pack-btn"
+        >
+          <LayoutGrid size={18} />
+        </button>
       </div>
     </div>
   );
 }
 
 // Helper to normalize point
-function getPoint(p: PointOrArray): { x: number, y: number } {
-  if (Array.isArray(p)) return { x: p[0], y: p[1] };
-  return p;
+function getPoint(p: PointOrArray | null | undefined): { x: number, y: number } {
+  if (!p) return { x: 0, y: 0 };
+  if (Array.isArray(p)) return { x: p[0] ?? 0, y: p[1] ?? 0 };
+  if (typeof p === 'object' && 'x' in p && 'y' in p) {
+    return { x: p.x ?? 0, y: p.y ?? 0 };
+  }
+  return { x: 0, y: 0 };
+}
+
+// Helper for point-in-polygon hit testing
+function isPointInPolygon(point: { x: number, y: number }, vs: { x: number, y: number }[]) {
+  const x = point.x, y = point.y;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i].x, yi = vs[i].y;
+    const xj = vs[j].x, yj = vs[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 // Interactive 2D Canvas Component
 interface Canvas2DProps {
   project: Project | null;
   mode: string;
+  viewOptions: ViewOptions;
   selectedIslands: number[];
   onSelectIsland: (id: IslandId | null, addToSelection?: boolean) => void;
   onMoveIsland: (id: IslandId, delta: [number, number]) => Promise<void>;
@@ -266,13 +304,43 @@ interface Canvas2DProps {
   onError: (msg: string) => void;
 }
 
-function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
+function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland, onMoveIsland, onRotateIsland, onProjectUpdate, onError }: Canvas2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(2);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+  const [redrawKey, setRedrawKey] = useState(0);
+
+  // Force redraw when project changes
+  useEffect(() => {
+    if (project) {
+      console.log("Canvas2D: project changed, status:", {
+        islands: project.islands?.length,
+        hasOptions: !!project.options,
+        pageSize: project.options?.page_size
+      });
+      if (project.islands && project.islands.length > 0) {
+        console.log("Canvas2D: First island sample:", project.islands[0]);
+      }
+      setRedrawKey(k => k + 1);
+      // Auto-fit on first load or significant change
+      handleZoomFit();
+    }
+  }, [project?.islands, project?.options]);
+
+  // ResizeObserver to handle container size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      setRedrawKey(k => k + 1);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   interface DraggedIslandState {
     id: IslandId;
@@ -303,16 +371,23 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
   } | null>(null);
 
   // Get island data
-  const islands = useMemo(() => {
-    if (!project?.islands) return [];
-    return Object.values(project.islands).map(data => ({ ...data }));
-  }, [project]);
+  // islands is an array from the backend - clone each entry to ensure new references
+  const islandsArray: Island[] = Array.isArray(project?.islands) ? project.islands : Object.values(project?.islands || {});
+  const islands = islandsArray.map((data: Island) => ({ ...data }));
 
   // Calculate canvas dimensions
   const options = project?.options;
   const scale = 2; // pixels per mm base scale
   const pageWidth = options ? options.page_size[0] * scale : 210 * scale;
   const pageHeight = options ? options.page_size[1] * scale : 297 * scale;
+  const PAGE_SEP = 10 * scale;
+
+  const pageCols = options?.page_cols || 1;
+  const pageCount = options?.pages || 1;
+  const pageRows = Math.ceil(pageCount / pageCols);
+
+  const totalWidth = options ? pageCols * pageWidth + (pageCols - 1) * PAGE_SEP : pageWidth;
+  const totalHeight = options ? pageRows * pageHeight + (pageRows - 1) * PAGE_SEP : pageHeight;
 
   // Hit test - find island at position
   // Helper for point-segment distance (squared)
@@ -356,34 +431,65 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     if (!canvas || !project) return null;
 
     const rect = canvas.getBoundingClientRect();
-    const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-    const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+    const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+    const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
-    // Convert screen coordinates to global paper coordinates (pixels)
     const paperX = (clientX - offsetX) / zoom;
     const paperY = (clientY - offsetY) / zoom;
-
-    // Scale back to mm for checking against island.pos which is in mm?
-    // Wait, island.pos is in mm.
-    // So convert paper coordinates to mm.
     const modelX = paperX / scale;
     const modelY = paperY / scale;
 
-    // Find island at this position
-    for (const island of islands) {
-      const { x: ix, y: iy } = getPoint(island.pos);
+    // Search backwards to select the top-most island
+    for (let i = islands.length - 1; i >= 0; i--) {
+      const island = islands[i];
+      if (!island.faces) continue;
 
+      for (const face of island.faces) {
+        if (!face.vertices) continue;
+        const vs = face.vertices.map(v => getPoint(v));
+        if (isPointInPolygon({ x: modelX, y: modelY }, vs)) {
+          return island;
+        }
+      }
+
+      // Still keep the origin hit test as a fallback or for small islands
+      const { x: ix, y: iy } = getPoint(island.pos);
       const dx = modelX - ix;
       const dy = modelY - iy;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      // Hit radius of 20mm
-      if (distance < 20) {
+      if (Math.sqrt(dx * dx + dy * dy) < 10) {
         return island;
       }
     }
     return null;
-  }, [project, islands, zoom, pan, pageWidth, pageHeight, scale]);
+  }, [project, islands, zoom, pan, totalWidth, totalHeight, scale]);
+
+  const performEdgeAction = useCallback(async (edge: any, altKey: boolean) => {
+    console.log("Performing edge action:", edge, "Mode:", mode, "Alt:", altKey);
+    try {
+      let actionData;
+
+      // Alt+Click for Flap Toggle
+      if (altKey) {
+        actionData = api.actions.toggleFlap(edge.id);
+      } else if (mode === 'join' || (mode === 'select' && edge.kind === 'cut')) {
+        actionData = api.actions.join(edge.id);
+      } else if (mode === 'cut' || (mode === 'select' && (edge.kind === 'mountain' || edge.kind === 'valley'))) {
+        actionData = api.actions.cut(edge.id, 5.0);
+      }
+
+      if (actionData) {
+        console.log("Sending action to backend:", actionData);
+        const updatedProject = await api.performAction(actionData);
+        onProjectUpdate(updatedProject);
+        setHoveredEdge(null);
+      } else {
+        console.log("No action determined for this mode/edge combination.");
+      }
+    } catch (err: any) {
+      console.error("Action failed:", err);
+      onError(err.message);
+    }
+  }, [mode, onProjectUpdate, onError]);
 
   // Handle pointer down
   const handlePointerDown = useCallback(async (e: React.PointerEvent) => {
@@ -422,32 +528,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     // Check edge click first
     if (hoveredEdge) {
-      e.stopPropagation(); // prevent island selection?
-      // Toggle logic: Cut <-> Join
-      try {
-        let actionData;
-
-        // Alt+Click for Flap Toggle (only on cut edges)
-        if (e.altKey && hoveredEdge.edge.kind === 'cut') { // Access kind from hoveredEdge.edge
-          actionData = api.actions.toggleFlap(hoveredEdge.edgeId);
-        } else if (hoveredEdge.edge.kind === 'cut') { // Join
-          actionData = api.actions.join(hoveredEdge.edgeId);
-        } else { // Cut
-          actionData = api.actions.cut(hoveredEdge.edgeId, 5.0);
-        }
-
-        if (actionData) {
-          const updatedProject = await api.performAction(actionData);
-          onProjectUpdate(updatedProject);
-          // Clear selection/hover
-          setHoveredEdge(null);
-          return;
-        }
-      } catch (err: any) {
-        console.error("Action failed:", err);
-        onError(err.message);
-      }
-      return;
+      e.stopPropagation();
+      await performEdgeAction(hoveredEdge, e.altKey);
+      // If we are in cut/join mode, don't fallback to island selection
+      if (mode === 'cut' || mode === 'join') return;
     }
 
     const island = hitTest(x, y);
@@ -457,8 +541,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(island.id, e.shiftKey);
 
         const { x: ix, y: iy } = getPoint(island.pos);
-        const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
-        const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+        const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x; // Recalculate offsetX/Y
+        const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
         if (mode === 'move') {
           setDraggedIsland({
@@ -492,7 +576,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
         onSelectIsland(null);
       }
     }
-  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, onProjectUpdate, onError]);
+  }, [mode, pan, hitTest, onSelectIsland, zoom, scale, pageWidth, pageHeight, hoveredEdge, performEdgeAction, onProjectUpdate, onError]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -548,8 +632,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
             };
           });
         } else if (draggedIsland.mode === 'rotate') {
-          const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-          const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+          const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+          const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
           const cx = draggedIsland.origX * scale * zoom + offsetX;
           const cy = draggedIsland.origY * scale * zoom + offsetY;
 
@@ -573,24 +657,26 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       }
     } else {
       // Hover detection
-      const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-      const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+      const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+      const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
 
-      // Convert screen coordinates to model coordinates (mm) for hitTestEdge
       const modelX = (x - offsetX) / (zoom * scale);
       const modelY = (y - offsetY) / (zoom * scale);
 
-      const edgeHit = hitTestEdge(modelX, modelY);
+      // Only interact with edges in cut/join modes, or if Alt is pressed
+      const canInteractWithEdges = mode === 'cut' || mode === 'join' || e.altKey;
+      const edgeHit = canInteractWithEdges ? hitTestEdge(modelX, modelY) : null;
+
       if (edgeHit) {
-        setHoveredEdge(edgeHit.edge); // Use edge object or ID depending on type. edgeHit has edgeId and edge.
-        setHoveredIsland(null); // Clear island hover to avoid confusion
+        setHoveredEdge(edgeHit.edge);
+        setHoveredIsland(null);
       } else {
         setHoveredEdge(null);
-        const island = hitTest(x, y); // Use screen coordinates for island hitTest
+        const island = hitTest(e.clientX, e.clientY);
         setHoveredIsland(island ? island.id.idx : null);
       }
     }
-  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, pageWidth, pageHeight]);
+  }, [isDragging, draggedIsland, dragStart, zoom, scale, hitTest, hitTestEdge, pan, totalWidth, totalHeight, mode]);
 
   // Handle pointer up
   const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
@@ -638,8 +724,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
-    const scaleX = (rect.width - 40) / pageWidth;
-    const scaleY = (rect.height - 40) / pageHeight;
+    const scaleX = (rect.width - 40) / totalWidth;
+    const scaleY = (rect.height - 40) / totalHeight;
     setZoom(Math.min(scaleX, scaleY, 1));
     setPan({ x: 0, y: 0 });
   }, [pageWidth, pageHeight]);
@@ -665,8 +751,14 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     ctx.fillRect(0, 0, rect.width, rect.height);
 
     // Calculate offsets
-    const offsetX = (rect.width - pageWidth * zoom) / 2 + pan.x;
-    const offsetY = (rect.height - pageHeight * zoom) / 2 + pan.y;
+    const offsetX = (rect.width - totalWidth * zoom) / 2 + pan.x;
+    const offsetY = (rect.height - totalHeight * zoom) / 2 + pan.y;
+
+    if (totalWidth === 0 || totalHeight === 0) {
+      console.warn("Canvas2D: dimensions are zero, skipping draw:", { totalWidth, totalHeight });
+      return;
+    }
+    console.log("Canvas2D: drawing frame. Pages:", pageCount, "Islands:", islands.length, "Zoom:", zoom.toFixed(3));
 
     // Draw grid
     ctx.save();
@@ -687,25 +779,53 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
     }
     ctx.restore();
 
-    // Draw paper background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
-    ctx.strokeStyle = '#4a4a5e';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
+    // Draw all pages
+    for (let p = 0; p < pageCount; p++) {
+      const row = Math.floor(p / pageCols);
+      const col = p % pageCols;
+      const px = offsetX + col * (pageWidth + PAGE_SEP) * zoom;
+      const py = offsetY + row * (pageHeight + PAGE_SEP) * zoom;
 
-    // Clip to paper
+      // Draw paper background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(px, py, pageWidth * zoom, pageHeight * zoom);
+      ctx.strokeStyle = '#4a4a5e';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px, py, pageWidth * zoom, pageHeight * zoom);
+
+      // Page label
+      ctx.fillStyle = '#8e8e93';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Page ${p + 1}`, px + 5, py + 15);
+
+      // Draw margins
+      if (options?.margin) {
+        const [mt, ml, mr, mb] = options.margin;
+        ctx.save();
+        ctx.strokeStyle = '#d1d1d6';
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(
+          px + ml * scale * zoom,
+          py + mt * scale * zoom,
+          (pageWidth - (ml + mr) * scale) * zoom,
+          (pageHeight - (mt + mb) * scale) * zoom
+        );
+        ctx.restore();
+      }
+    }
+
+    // No clipping - allow islands to be seen between pages or if they overlap
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(offsetX, offsetY, pageWidth * zoom, pageHeight * zoom);
-    ctx.clip();
 
     // Draw islands
-    islands.forEach((island) => {
-      // Use idx for comparison
-      const isSelected = selectedIslands.includes(island.id.idx);
-      const isHovered = hoveredIsland === island.id.idx;
-      const isDragged = draggedIsland?.id.idx === island.id.idx;
+    islands.forEach((island, index) => {
+      // Use idx for comparison - handle different id formats
+      const islandIdx = island.id?.idx ?? (island as any).idx ?? index;
+      const isSelected = selectedIslands.includes(islandIdx);
+      const isHovered = hoveredIsland === islandIdx;
+      const isDragged = draggedIsland?.id?.idx === islandIdx || draggedIsland?.id === islandIdx;
 
       // Extract pos and rot
       const { x: ix, y: iy } = getPoint(island.pos);
@@ -729,6 +849,8 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       ctx.translate(offsetX, offsetY);
       ctx.scale(zoom * scale, zoom * scale);
 
+      console.log("Island data:", island);
+
       // Apply drag translation (in mm)
       if (tx !== 0 || ty !== 0) {
         ctx.translate(tx, ty);
@@ -744,7 +866,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       }
 
       // Draw Flaps (behind faces)
-      if (island.flaps) {
+      if (viewOptions.showFlaps && island.flaps) {
         island.flaps.forEach(flap => {
           if (!flap.vertices || flap.vertices.length < 3) return;
           ctx.beginPath();
@@ -754,9 +876,10 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
             else ctx.lineTo(vx, vy);
           });
           ctx.closePath();
-          ctx.fillStyle = '#e5e7eb'; // light grey
+          // Use a more visible color for flaps (orange-ish/tan)
+          ctx.fillStyle = isSelected ? '#fed7aa' : '#ffedd5';
           ctx.fill();
-          ctx.strokeStyle = '#9ca3af'; // darker grey
+          ctx.strokeStyle = '#d97706'; // darker amber
           ctx.lineWidth = 0.5 / scale;
           ctx.stroke();
         });
@@ -860,9 +983,26 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
 
     ctx.restore(); // Clip restore
 
-  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, pageWidth, pageHeight, scale]);
+  }, [project, islands, zoom, pan, selectedIslands, hoveredIsland, draggedIsland, mode, viewOptions, pageWidth, pageHeight, scale, redrawKey]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (local to Canvas2D for edge interaction)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (hoveredEdge) {
+          e.preventDefault();
+          performEdgeAction(hoveredEdge, e.altKey);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hoveredEdge, performEdgeAction]);
+
+  // Keyboard shortcuts (global to Canvas2D)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
@@ -890,6 +1030,7 @@ function Canvas2D({ project, mode, selectedIslands, onSelectIsland, onMoveIsland
       <canvas
         ref={canvasRef}
         className="canvas-2d"
+        data-testid="paper-canvas"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -932,8 +1073,112 @@ export default function App() {
     showTextures: false,
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [, setError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [isResizing, setIsResizing] = useState(false);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
+  // Handle file upload
+  const handleUpload = useCallback(async (file: File) => {
+    setIsLoading(true);
+    setUploadProgress(0);
+    setError(null);
+    try {
+      console.log("Uploading file:", file.name, "size:", file.size);
+      const projectData = await api.uploadModelWithProgress(file, (percent) => {
+        setUploadProgress(percent);
+      });
+      console.log("Upload successful, received project:", projectData);
+      resetProject(projectData);
+      setStatus({ connected: true, hasModel: true });
+      setSelectedIslands([]);
+      setMode('select');
+    } catch (err: any) {
+      console.error("Upload failed details:", err);
+      // Detailed error if possible
+      let msg = err.message;
+      if (err.responseText) {
+        msg += " - " + err.responseText;
+      } else if (err.response) {
+        try {
+          const body = await err.response.text();
+          console.error("Server response body:", body);
+          msg += " - " + body;
+        } catch (e) {
+          console.error("Could not read error body", e);
+        }
+      }
+      setError('Failed to upload model: ' + msg);
+    } finally {
+      setIsLoading(false);
+      setUploadProgress(0);
+    }
+  }, [resetProject]);
+
+  // Expose loadModel to window for easier testing
+  useEffect(() => {
+    (window as any).loadModel = async (file: File) => {
+      console.log("Console: Loading model...", file.name);
+      await handleUpload(file);
+    };
+    (window as any).project = project;
+    return () => {
+      delete (window as any).loadModel;
+      delete (window as any).project;
+    };
+  }, [project, handleUpload]);
+
+  const handleResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    console.log("Resizer: started");
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing || !contentAreaRef.current) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!contentAreaRef.current) return;
+      const rect = contentAreaRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = x / rect.width;
+      console.log("Resizer: moving, ratio =", ratio.toFixed(3));
+      setSplitRatio(Math.min(Math.max(ratio, 0.1), 0.9));
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      console.log("Resizer: finished");
+      setIsResizing(false);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (err) { }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isResizing]);
+
+  const performAction = async (type: string, _data: any) => {
+    try {
+      let action;
+      if (type === 'pack') {
+        action = api.actions.packIslands();
+      } else {
+        return;
+      }
+      const updatedProject = await api.performAction(action);
+      setProject(updatedProject);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   // Check backend status on mount
   useEffect(() => {
@@ -955,22 +1200,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [project]);
 
-  // Handle file upload
-  const handleUpload = async (file: File) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      await api.uploadModel(file);
-      const projectData = await api.getProject();
-      resetProject(projectData);
-      setStatus(s => ({ ...s, hasModel: true }));
-      setSelectedIslands([]);
-    } catch (err: any) {
-      setError('Failed to upload model: ' + err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Handle island selection
   const handleSelectIsland = useCallback((islandId: IslandId | null, addToSelection = false) => {
@@ -1092,6 +1321,13 @@ export default function App() {
         </div>
       </header>
 
+      {error && (
+        <div className="error-banner">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>&times;</button>
+        </div>
+      )}
+
       <div className="main-content">
         <div className="toolbar-container">
           <Toolbar
@@ -1103,24 +1339,44 @@ export default function App() {
             onExport={handleExport}
             onUndo={undo}
             onRedo={redo}
+            onAction={performAction}
             canUndo={canUndo}
             canRedo={canRedo}
           />
         </div>
 
-        <div className="content-area">
+        <div
+          ref={contentAreaRef}
+          className="content-area"
+          style={{
+            cursor: isResizing ? 'col-resize' : 'default'
+          }}
+        >
           {project ? (
             <>
-              <div className="preview-pane">
-                {/* 3D Preview */}
+              <div
+                className="preview-pane"
+                style={window.innerWidth >= 768 ? { flex: splitRatio, minWidth: 0 } : {}}
+              >
                 <div className="preview-3d-container">
                   <Preview3D project={project} />
                 </div>
+                <div className="pane-label">3D Preview</div>
               </div>
-              <div className="canvas-pane">
+
+              <div
+                className="resizer-h"
+                onPointerDown={handleResizeStart}
+              />
+
+              <div
+                className="canvas-pane"
+                style={window.innerWidth >= 768 ? { flex: 1 - splitRatio, minWidth: 0 } : { flex: 1 }}
+              >
                 <Canvas2D
                   project={project}
                   mode={mode}
+                  viewOptions={viewOptions}
                   selectedIslands={selectedIslands}
                   onSelectIsland={handleSelectIsland}
                   onMoveIsland={handleMoveIsland}
@@ -1128,10 +1384,11 @@ export default function App() {
                   onProjectUpdate={(p) => setProject(p)}
                   onError={(msg) => setError(msg)}
                 />
+                <div className="pane-label">2D Template</div>
               </div>
             </>
           ) : (
-            <div className="empty-state-container">
+            <div className="empty-state-container" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState
                 icon={Box}
                 message="Upload a 3D model to start crafting"
@@ -1147,6 +1404,26 @@ export default function App() {
         options={project?.options || null}
         onSave={handleOptionsSave}
       />
-    </div>
+
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-box">
+            <div className="spinner" />
+            <p>Processing model...</p>
+            {uploadProgress > 0 && (
+              <div style={{ width: '100%', marginTop: '0.5rem' }}>
+                <div className="progress-bar-container">
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.2rem', textAlign: 'center' }}>{uploadProgress}%</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div >
   );
 }

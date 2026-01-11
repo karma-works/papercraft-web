@@ -9,16 +9,50 @@ export async function getStatus(): Promise<{ has_model: boolean }> {
 }
 
 export async function uploadModel(file: File): Promise<Project> {
-    const formData = new FormData();
-    formData.append('file', file);
+    return uploadModelWithProgress(file, () => { });
+}
 
-    const response = await fetch(`${API_BASE}/upload`, {
-        method: 'POST',
-        body: formData,
+export async function uploadModelWithProgress(
+    file: File,
+    onProgress: (percent: number) => void
+): Promise<Project> {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/upload`, true);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                onProgress(percent);
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    resolve(JSON.parse(xhr.responseText));
+                } catch (e) {
+                    const error = new Error('Failed to parse response') as any;
+                    error.responseText = xhr.responseText;
+                    reject(error);
+                }
+            } else {
+                const error = new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`) as any;
+                error.status = xhr.status;
+                error.responseText = xhr.responseText;
+                reject(error);
+            }
+        };
+
+        xhr.onerror = () => {
+            reject(new Error('Network error during upload'));
+        };
+
+        xhr.send(formData);
     });
-
-    if (!response.ok) throw new Error('Failed to upload model');
-    return response.json();
 }
 
 export async function getProject(): Promise<Project> {
@@ -39,7 +73,11 @@ export async function performAction(action: Action): Promise<Project> {
         body: JSON.stringify(action),
     });
 
-    if (!response.ok) throw new Error('Failed to perform action');
+    if (!response.ok) {
+        const error = new Error('Failed to perform action') as any;
+        error.response = response;
+        throw error;
+    }
     return response.json();
 }
 
@@ -80,5 +118,8 @@ export const actions = {
         type: 'setOptions',
         options,
         relocate_pieces: relocatePieces,
+    }),
+    packIslands: (): Action => ({
+        type: 'pack',
     }),
 };

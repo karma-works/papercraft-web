@@ -46,6 +46,8 @@ export interface SettingsOptions {
     page_size: [number, number];
     margin: [number, number, number, number];
     texture: boolean;
+    pages: number;
+    page_cols: number;
     tab_width?: number;
     tab_angle?: number;
     [key: string]: any;
