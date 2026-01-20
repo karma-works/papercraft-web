@@ -545,38 +545,44 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
     let options = papercraft.options();
     let page_size_mm = Vector2::new(options.page_size.0, options.page_size.1);
     let scale = options.scale;
-    let in_page = options.is_in_page_fn(page);
+    let page_offset = options.page_position(page);
     
     let mut ops: Vec<Operation> = Vec::new();
 
     // Helper to convert mm to points
     let mm_to_pt = |mm: f32| mm * 72.0 / 25.4;
-    // PDF Y-coordinate is from bottom
+    // PDF Y-coordinate is from bottom, relative to the current page top-left
     let pdf_y = |y: f32| (page_size_mm.y - y) * 72.0 / 25.4;
 
     // Get paper color
     let paper_color = &options.paper_color;
     
-    // Draw faces as filled paths
+    // 1. Draw faces as filled paths
     for (_i_island, island) in papercraft.islands() {
-        let island_mx = island.matrix();
+        // Determine which page this island belongs to based on bounding box center
+        let (bb_min, bb_max) = papercraft.island_bounding_box_angle(island, Rad(0.0));
+        let center = (bb_min + bb_max) / 2.0;
+        let po = options.global_to_page(center);
+        let owner_page = (po.row as u32) * options.page_cols.max(1) + (po.col as u32);
+        
+        if owner_page != page {
+            continue;
+        }
+
         let _ = papercraft.traverse_faces(island, |_i_face, face, mx| {
             let plane = papercraft.model().face_plane(face);
-            let full_mx = island_mx * mx;
             
             let vertices: Vec<_> = face.index_vertices()
                 .into_iter()
                 .map(|i_v| {
                     let v = &papercraft.model()[i_v];
                     let p2d = plane.project(&v.pos(), scale);
-                    full_mx.transform_point(Point2::from_vec(p2d)).to_vec()
+                    let p_global = mx.transform_point(Point2::from_vec(p2d)).to_vec();
+                    p_global - page_offset
                 })
                 .collect();
             
-            // Check if any vertex is in page
-            let any_in_page = vertices.iter().any(|v| in_page(*v).0);
-            
-            if any_in_page && vertices.len() >= 3 {
+            if vertices.len() >= 3 {
                 // Set fill color
                 ops.push(Operation::new(
                     "rg",
@@ -584,12 +590,11 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
                 ));
                 
                 // Move to first vertex
-                let (_, p0) = in_page(vertices[0]);
+                let p0 = vertices[0];
                 ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
                 
                 // Line to other vertices
-                for v in &vertices[1..] {
-                    let (_, p) = in_page(*v);
+                for p in &vertices[1..] {
                     ops.push(Operation::new("l", vec![mm_to_pt(p.x).into(), pdf_y(p.y).into()]));
                 }
                 
@@ -601,57 +606,155 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
         });
     }
 
-    // Draw cut lines (black)
+    // Draw lines (black)
     ops.push(Operation::new("RG", vec![0.0.into(), 0.0.into(), 0.0.into()]));
     ops.push(Operation::new("w", vec![0.5.into()])); // Line width
 
     for (i_island, island) in papercraft.islands() {
-        // Build Face -> Island matrix map
+        // Bounding box filter
+        let (bb_min, bb_max) = papercraft.island_bounding_box_angle(island, Rad(0.0));
+        let center = (bb_min + bb_max) / 2.0;
+        let po = options.global_to_page(center);
+        let owner_page = (po.row as u32) * options.page_cols.max(1) + (po.col as u32);
+        
+        if owner_page != page {
+            continue;
+        }
+
+        // Build Face -> Island matrix map for flaps and perimeter
         let mut face_matrices: std::collections::HashMap<crate::paper::FaceIndex, Matrix3> = std::collections::HashMap::new();
         let _ = papercraft.traverse_faces(island, |i_face, _, mx| {
             face_matrices.insert(i_face, *mx);
             ControlFlow::Continue(())
         });
-        let island_mx = island.matrix();
 
+        // 1. Draw Folds
+        if options.fold_style != FoldStyle::None {
+            let _ = papercraft.traverse_faces(island, |i_face, face, mx| {
+                let plane = papercraft.model().face_plane(face);
+
+                for i_edge in face.index_edges() {
+                    let edge_status = papercraft.edge_status(i_edge);
+                    if edge_status != EdgeStatus::Joined { continue; }
+
+                    let edge = &papercraft.model()[i_edge];
+                    let (_f_a, f_b_opt) = edge.faces();
+                    let Some(f_b) = f_b_opt else { continue; };
+                    
+                    if i_face > f_b { continue; }
+
+                    let Some((i_v0, i_v1)) = face.vertices_of_edge(i_edge) else { continue; };
+                    let v0 = &papercraft.model()[i_v0];
+                    let v1 = &papercraft.model()[i_v1];
+                    
+                    let p0_global = mx.transform_point(Point2::from_vec(plane.project(&v0.pos(), scale))).to_vec();
+                    let p1_global = mx.transform_point(Point2::from_vec(plane.project(&v1.pos(), scale))).to_vec();
+                    
+                    let p0 = p0_global - page_offset;
+                    let p1 = p1_global - page_offset;
+
+                    let angle = edge.angle().0;
+                    if angle.is_sign_negative() {
+                        // Valley: Dashed
+                        ops.push(Operation::new("d", vec![vec![2.into(), 2.into()].into(), 0.into()]));
+                    } else {
+                        // Mountain: Solid
+                        ops.push(Operation::new("d", vec![vec![].into(), 0.into()]));
+                    }
+                    ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(p1.x).into(), pdf_y(p1.y).into()]));
+                    ops.push(Operation::new("S", vec![]));
+                }
+                ControlFlow::Continue(())
+            });
+            // Reset dash
+            ops.push(Operation::new("d", vec![vec![].into(), 0.into()]));
+        }
+
+        // 2. Draw Flaps
+        if options.flap_style != FlapStyle::None {
+            for peri in papercraft.island_perimeter(i_island).iter() {
+                let edge_status = papercraft.edge_status(peri.i_edge());
+                if let EdgeStatus::Cut(flap_side) = edge_status {
+                    if !flap_side.flap_visible(peri.face_sign()) { continue; }
+
+                    let edge = &papercraft.model()[peri.i_edge()];
+                    let i_face = edge.face_by_sign(peri.face_sign()).unwrap();
+                    let face = &papercraft.model()[i_face];
+                    let plane = papercraft.model().face_plane(face);
+                    
+                    let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::identity());
+
+                    let Some((i_v0, i_v1)) = face.vertices_of_edge(peri.i_edge()) else { continue; };
+                    let v0 = &papercraft.model()[i_v0];
+                    let v1 = &papercraft.model()[i_v1];
+                    
+                    let p0_global = mx.transform_point(Point2::from_vec(plane.project(&v0.pos(), scale))).to_vec();
+                    let p1_global = mx.transform_point(Point2::from_vec(plane.project(&v1.pos(), scale))).to_vec();
+
+                    let p0 = p0_global - page_offset;
+                    let p1 = p1_global - page_offset;
+
+                    let edge_vec = p1 - p0;
+                    let edge_len = edge_vec.magnitude();
+                    let normal = Vector2::new(-edge_vec.y, edge_vec.x).normalize();
+                    let flap_width = options.flap_width.min(edge_len * 0.4);
+                    let taper = 0.15;
+                    
+                    let f0 = p0 + normal * flap_width + edge_vec.normalize() * (edge_len * taper);
+                    let f1 = p1 + normal * flap_width - edge_vec.normalize() * (edge_len * taper);
+
+                    // Fill Flap
+                    ops.push(Operation::new("rg", vec![0.88.into(), 0.88.into(), 0.88.into()]));
+                    ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(p1.x).into(), pdf_y(p1.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(f1.x).into(), pdf_y(f1.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(f0.x).into(), pdf_y(f0.y).into()]));
+                    ops.push(Operation::new("f", vec![]));
+
+                    // Stroke Flap
+                    ops.push(Operation::new("w", vec![0.2.into()]));
+                    ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(f0.x).into(), pdf_y(f0.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(f1.x).into(), pdf_y(f1.y).into()]));
+                    ops.push(Operation::new("l", vec![mm_to_pt(p1.x).into(), pdf_y(p1.y).into()]));
+                    ops.push(Operation::new("S", vec![]));
+                }
+            }
+        }
+
+        // 3. Draw Perimeter Cut Lines
         let perimeter = papercraft.island_perimeter(i_island);
-        if perimeter.is_empty() {
-            continue;
-        }
-        
-        // Similar logic to SVG but output PDF path commands
-        let mut contour_points: Vec<Vector2> = Vec::new();
-        let mut touching = false;
-        
-        for peri in perimeter.iter() {
-            let edge = &papercraft.model()[peri.i_edge()];
-            let i_face = edge.face_by_sign(peri.face_sign()).unwrap();
-            let face = &papercraft.model()[i_face];
-            let plane = papercraft.model().face_plane(face);
+        if !perimeter.is_empty() {
+            let mut contour_points: Vec<Vector2> = Vec::new();
             
-            let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::from_scale(1.0));
-            let full_mx = island_mx * mx;
+            for peri in perimeter.iter() {
+                let edge = &papercraft.model()[peri.i_edge()];
+                let i_face = edge.face_by_sign(peri.face_sign()).unwrap();
+                let face = &papercraft.model()[i_face];
+                let plane = papercraft.model().face_plane(face);
+                
+                let mx = face_matrices.get(&i_face).cloned().unwrap_or(Matrix3::from_scale(1.0));
 
-            let (i_v0, _) = face.vertices_of_edge(peri.i_edge()).unwrap();
-            let v0 = &papercraft.model()[i_v0];
-            
-            let p0_2d = plane.project(&v0.pos(), scale);
-            let p0 = full_mx.transform_point(Point2::from_vec(p0_2d)).to_vec();
-            
-            let (is_in, pos) = in_page(p0);
-            touching = touching || is_in;
-            contour_points.push(pos);
-        }
-        
-        if touching && !contour_points.is_empty() {
-            let p0 = contour_points[0];
-            ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
-            
-            for p in &contour_points[1..] {
-                ops.push(Operation::new("l", vec![mm_to_pt(p.x).into(), pdf_y(p.y).into()]));
+                let (i_v0, _) = face.vertices_of_edge(peri.i_edge()).unwrap();
+                let v0 = &papercraft.model()[i_v0];
+                
+                let p0_2d = plane.project(&v0.pos(), scale);
+                let p0_global = mx.transform_point(Point2::from_vec(p0_2d)).to_vec();
+                
+                contour_points.push(p0_global - page_offset);
             }
             
-            ops.push(Operation::new("s", vec![])); // Close and stroke
+            if !contour_points.is_empty() {
+                let p0 = contour_points[0];
+                ops.push(Operation::new("m", vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()]));
+                
+                for p in &contour_points[1..] {
+                    ops.push(Operation::new("l", vec![mm_to_pt(p.x).into(), pdf_y(p.y).into()]));
+                }
+                
+                ops.push(Operation::new("s", vec![])); // Close and stroke
+            }
         }
     }
 
@@ -664,7 +767,20 @@ fn generate_pdf_page_ops(papercraft: &Papercraft, page: u32) -> Result<Vec<Opera
             let size = text.size * 72.0 / 25.4 / 1.1;
             ops.push(Operation::new("Tf", vec!["F1".into(), size.into()]));
             
-            let x = mm_to_pt(text.pos.x);
+            // Heuristic alignment shift
+            let mut x = mm_to_pt(text.pos.x);
+            match text.align {
+                TextAlign::Center => {
+                    let approx_width = (text.text.len() as f32) * size * 0.5;
+                    x -= approx_width / 2.0;
+                }
+                TextAlign::Far => {
+                    let approx_width = (text.text.len() as f32) * size * 0.5;
+                    x -= approx_width;
+                }
+                TextAlign::Near => {}
+            }
+
             let y = pdf_y(text.pos.y);
             
             ops.push(Operation::new(
