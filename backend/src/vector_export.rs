@@ -1024,7 +1024,7 @@ fn generate_pdf_page_ops(
 
                 // Draw texture if enabled and available
                 if has_texture {
-                    if let Some((_, tex_width, tex_height)) = texture_info {
+                    if let Some((_, _, _)) = texture_info {
                         // Get UV coordinates for this face
                         let uvs: Vec<_> = face
                             .index_vertices()
@@ -1098,20 +1098,6 @@ fn generate_pdf_page_ops(
                                         d_pt.into(),
                                         e_pt.into(),
                                         f_pt.into(),
-                                    ],
-                                ));
-
-                                // Scale image from 1x1 to texture pixel dimensions
-                                // PDF images are drawn as 1x1 unit squares
-                                ops.push(Operation::new(
-                                    "cm",
-                                    vec![
-                                        (*tex_width as f32).into(),
-                                        0.0.into(),
-                                        0.0.into(),
-                                        (*tex_height as f32).into(),
-                                        0.0.into(),
-                                        0.0.into(),
                                     ],
                                 ));
 
