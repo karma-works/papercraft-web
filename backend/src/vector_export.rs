@@ -631,7 +631,7 @@ fn write_svg_layers(
     writeln!(w, r#"</g>"#)?;
 
     // Write Text layer
-    let texts = collect_texts(papercraft, page);
+    let texts = collect_texts(papercraft, options, page);
     if !texts.is_empty() {
         writeln!(
             w,
@@ -676,8 +676,11 @@ fn write_svg_layers(
 }
 
 /// Collect text elements for a page (page numbers, edge IDs, signature).
-fn collect_texts(papercraft: &Papercraft, page: u32) -> Vec<PrintableText> {
-    let options = papercraft.options();
+fn collect_texts(
+    papercraft: &Papercraft,
+    options: &crate::paper::PaperOptions,
+    page: u32,
+) -> Vec<PrintableText> {
     let page_size = Vector2::new(options.page_size.0, options.page_size.1);
     let (_margin_top, margin_left, margin_right, margin_bottom) = options.margin;
     let page_count = options.pages;
@@ -834,7 +837,26 @@ fn embed_pdf_textures(
 
 /// Generate a PDF document from the papercraft project.
 pub fn generate_pdf(papercraft: &Papercraft, with_textures: bool) -> Result<Vec<u8>> {
-    let options = papercraft.options();
+    let mut options = papercraft.options().clone();
+
+    // Auto-detect page columns if islands extend beyond current cols
+    // This prevents items placed visually in a horizontal row from being wrapped to the next row coordinates
+    // if the page_cols setting is too low.
+    const PAGE_SEP: f32 = 10.0;
+    let max_col = papercraft
+        .islands()
+        .map(|(_, island)| {
+            let (bb_min, bb_max) = papercraft.island_bounding_box_angle(island, Rad(0.0));
+            let center = (bb_min + bb_max) / 2.0;
+            (center.x / (options.page_size.0 + PAGE_SEP)) as i32
+        })
+        .max()
+        .unwrap_or(0);
+
+    if max_col >= options.page_cols as i32 {
+        options.page_cols = (max_col + 1) as u32;
+    }
+
     let page_size_mm = Vector2::new(options.page_size.0, options.page_size.1);
     let page_count = options.pages;
 
@@ -860,7 +882,8 @@ pub fn generate_pdf(papercraft: &Papercraft, with_textures: bool) -> Result<Vec<
     let mut pages = vec![];
 
     for page in 0..page_count {
-        let ops = generate_pdf_page_ops(papercraft, page, with_textures, &texture_xobjects)?;
+        let ops =
+            generate_pdf_page_ops(papercraft, &options, page, with_textures, &texture_xobjects)?;
 
         let content = Content { operations: ops };
         let id_content = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
@@ -939,11 +962,11 @@ pub fn generate_pdf(papercraft: &Papercraft, with_textures: bool) -> Result<Vec<
 /// Generate PDF operations for a single page.
 fn generate_pdf_page_ops(
     papercraft: &Papercraft,
+    options: &crate::paper::PaperOptions,
     page: u32,
     with_textures: bool,
     texture_xobjects: &[(lopdf::ObjectId, u32, u32)],
 ) -> Result<Vec<Operation>> {
-    let options = papercraft.options();
     let page_size_mm = Vector2::new(options.page_size.0, options.page_size.1);
     let scale = options.scale;
     let page_offset = options.page_position(page);
@@ -1344,7 +1367,7 @@ fn generate_pdf_page_ops(
     }
 
     // Draw text
-    let texts = collect_texts(papercraft, page);
+    let texts = collect_texts(papercraft, options, page);
     if !texts.is_empty() {
         ops.push(Operation::new("BT", Vec::new()));
 

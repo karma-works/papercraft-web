@@ -2,7 +2,7 @@
 mod tests {
     use crate::util_3d::Vector2;
     use crate::vector_export::generate_svg_multipage;
-    use cgmath::{Matrix3, SquareMatrix};
+    use cgmath::{Matrix, Matrix3, Point2, SquareMatrix, Transform};
     use regex::Regex;
     use std::path::PathBuf;
 
@@ -65,8 +65,6 @@ mod tests {
             crate::paper::import::import_model_file(&path).expect("Failed to load sphere.pdo");
 
         let svg = generate_svg_multipage(&papercraft, true).expect("Failed to generate SVG");
-
-        let has_texture_fill = svg.contains("fill=\"url(#tex_pattern");
 
         // This confirms that we are generating texture logic
         let has_clip_paths = svg.contains("<clipPath");
