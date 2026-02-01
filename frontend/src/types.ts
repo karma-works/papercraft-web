@@ -56,6 +56,7 @@ export interface SettingsOptions {
     page_cols: number;
     tab_width?: number;
     tab_angle?: number;
+    tab_style?: 'Textured' | 'HalfTextured' | 'White' | 'None';
     [key: string]: any;
 }
 
