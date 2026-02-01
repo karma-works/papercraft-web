@@ -121,7 +121,29 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                         </div>
 
                         <div className="form-section">
-                            <h3>Flaps</h3>
+                            <h3>Textures & Flaps</h3>
+                            <div className="form-group">
+                                <Label>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.texture}
+                                        onChange={e => handleChange('texture', e.target.checked)}
+                                    /> Enable Textures
+                                </Label>
+                            </div>
+                            <div className="form-group">
+                                <Label>Flap Style</Label>
+                                <select
+                                    value={formData.tab_style || 'HalfTextured'}
+                                    onChange={e => handleChange('tab_style', e.target.value)}
+                                    className="form-select"
+                                >
+                                    <option value="Textured">Textured (full texture)</option>
+                                    <option value="HalfTextured">Half Textured (50% texture)</option>
+                                    <option value="White">White (no texture)</option>
+                                    <option value="None">None (no flaps)</option>
+                                </select>
+                            </div>
                             <div className="form-row">
                                 <div className="form-group">
                                     <Label>Width (mm)</Label>
