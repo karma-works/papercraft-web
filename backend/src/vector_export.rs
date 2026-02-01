@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use base64::prelude::*;
-use cgmath::{EuclideanSpace, InnerSpace, Matrix, Rad, SquareMatrix, Transform};
+use cgmath::{EuclideanSpace, InnerSpace, Rad, SquareMatrix, Transform};
 use std::io::Write;
 use std::ops::ControlFlow;
 

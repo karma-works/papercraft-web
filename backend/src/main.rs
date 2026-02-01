@@ -225,9 +225,9 @@ async fn export_file(
     match params.format.as_str() {
         "svg" => {
             let svg = if let Some(page) = params.page {
-                vector_export::generate_svg(project, page)
+                vector_export::generate_svg(project, page, params.textures.unwrap_or(true))
             } else {
-                vector_export::generate_svg_multipage(project)
+                vector_export::generate_svg_multipage(project, params.textures.unwrap_or(true))
             };
             
             match svg {
@@ -242,7 +242,7 @@ async fn export_file(
             }
         }
         "pdf" => {
-            match vector_export::generate_pdf(project) {
+            match vector_export::generate_pdf(project, params.textures.unwrap_or(true)) {
                 Ok(pdf_bytes) => Ok((
                     [(axum::http::header::CONTENT_TYPE, "application/pdf")],
                     pdf_bytes,
