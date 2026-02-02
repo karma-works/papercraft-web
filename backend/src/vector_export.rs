@@ -192,6 +192,20 @@ fn write_svg_defs(papercraft: &Papercraft, w: &mut impl Write) -> Result<Vec<(u3
     Ok(tex_dimensions)
 }
 
+/// Triangulate a polygon using fan triangulation.
+/// Returns a list of triangles, each represented as indices into the original vertex array.
+/// This works correctly for convex polygons (which papercraft faces are).
+fn triangulate_polygon(vertex_count: usize) -> Vec<[usize; 3]> {
+    if vertex_count < 3 {
+        return Vec::new();
+    }
+    let mut triangles = Vec::with_capacity(vertex_count - 2);
+    for i in 1..vertex_count - 1 {
+        triangles.push([0, i, i + 1]);
+    }
+    triangles
+}
+
 /// Calculate the transform matrix to map the texture unit square to the face polygon.
 /// Returns None if matrix is singular (degenerate triangle).
 fn calc_texture_matrix(uvs: [Vector2; 3], pts: [Vector2; 3]) -> Option<Matrix3> {
@@ -220,13 +234,14 @@ fn calc_texture_matrix(uvs: [Vector2; 3], pts: [Vector2; 3]) -> Option<Matrix3> 
 
 /// Calculate SVG texture transform matrix from UVs to face vertices.
 /// Maps pixel coordinates (UV * texture_size) to vertex coordinates.
-fn calc_svg_texture_matrix(
-    uvs: &[Vector2],
-    pts: &[Vector2],
+/// Takes exactly 3 UV coordinates and 3 points (a triangle).
+fn calc_svg_texture_matrix_triangle(
+    uvs: [Vector2; 3],
+    pts: [Vector2; 3],
     tex_width: u32,
     tex_height: u32,
 ) -> Option<Matrix3> {
-    if uvs.len() < 3 || pts.len() < 3 || tex_width == 0 || tex_height == 0 {
+    if tex_width == 0 || tex_height == 0 {
         return None;
     }
 
@@ -235,14 +250,13 @@ fn calc_svg_texture_matrix(
 
     // Convert UVs to pixel coordinates (like frontend does)
     // Also flip V coordinate: PDO uses V=0 at top, images have V=0 at bottom
-    let uvs: [Vector2; 3] = [
+    let pixel_uvs: [Vector2; 3] = [
         Vector2::new(uvs[0].x * w, (1.0 - uvs[0].y) * h),
         Vector2::new(uvs[1].x * w, (1.0 - uvs[1].y) * h),
         Vector2::new(uvs[2].x * w, (1.0 - uvs[2].y) * h),
     ];
-    let pts: [Vector2; 3] = [pts[0], pts[1], pts[2]];
 
-    calc_texture_matrix(uvs, pts)
+    calc_texture_matrix(pixel_uvs, pts)
 }
 
 /// Write all SVG layers for a single page.
@@ -488,7 +502,7 @@ fn write_svg_layers(
             let has_texture = with_textures && texture_idx.is_some();
 
             if has_texture {
-                // Draw textured face with proper UV mapping
+                // Draw textured face with proper UV mapping using triangulation
                 if let Some(tex_idx) = texture_idx {
                     // Get texture dimensions
                     let (tex_width, tex_height) =
@@ -501,43 +515,62 @@ fn write_svg_layers(
                         .map(|i_v| papercraft.model()[i_v].uv())
                         .collect();
 
-                    // Calculate texture transform matrix with proper dimensions
-                    if let Some(tex_matrix) =
-                        calc_svg_texture_matrix(&face_uvs, vertices, tex_width, tex_height)
-                    {
-                        // Create clip path for the face
-                        writeln!(w, r#"<defs>"#)?;
-                        writeln!(w, r#"<clipPath id="clip_face_{}">"#, idx)?;
-                        write!(w, r#"<polygon points=""#)?;
-                        for v in vertices {
-                            write!(w, "{},{} ", v.x, v.y)?;
+                    // Triangulate the face - each triangle gets its own transform
+                    let triangles = triangulate_polygon(vertices.len());
+
+                    for (tri_idx, tri_indices) in triangles.iter().enumerate() {
+                        let tri_pts = [
+                            vertices[tri_indices[0]],
+                            vertices[tri_indices[1]],
+                            vertices[tri_indices[2]],
+                        ];
+                        let tri_uvs = [
+                            face_uvs[tri_indices[0]],
+                            face_uvs[tri_indices[1]],
+                            face_uvs[tri_indices[2]],
+                        ];
+
+                        // Calculate texture transform matrix for this triangle
+                        if let Some(tex_matrix) = calc_svg_texture_matrix_triangle(
+                            tri_uvs, tri_pts, tex_width, tex_height,
+                        ) {
+                            // Create clip path for this triangle
+                            let clip_id = format!("clip_face_{}_{}", idx, tri_idx);
+                            writeln!(w, r#"<defs>"#)?;
+                            writeln!(w, r#"<clipPath id="{}">"#, clip_id)?;
+                            writeln!(
+                                w,
+                                r#"<polygon points="{},{} {},{} {},{}"/>"#,
+                                tri_pts[0].x,
+                                tri_pts[0].y,
+                                tri_pts[1].x,
+                                tri_pts[1].y,
+                                tri_pts[2].x,
+                                tri_pts[2].y
+                            )?;
+                            writeln!(w, r#"</clipPath>"#)?;
+                            writeln!(w, r#"</defs>"#)?;
+
+                            // Clip the texture to this triangle
+                            writeln!(w, r#"<g clip-path="url(#{})">"#, clip_id)?;
+
+                            // Draw transformed texture image
+                            let (a, b, c, d, e, f) = (
+                                tex_matrix.x.x,
+                                tex_matrix.x.y,
+                                tex_matrix.y.x,
+                                tex_matrix.y.y,
+                                tex_matrix.z.x,
+                                tex_matrix.z.y,
+                            );
+                            writeln!(
+                                w,
+                                "<use href=\"#tex_{}\" transform=\"matrix({} {} {} {} {} {})\"/>",
+                                tex_idx, a, b, c, d, e, f
+                            )?;
+
+                            writeln!(w, r#"</g>"#)?;
                         }
-                        writeln!(w, r#""/>"#)?;
-                        writeln!(w, r#"</clipPath>"#)?;
-                        writeln!(w, r#"</defs>"#)?;
-
-                        // Clip the texture to the face polygon
-                        writeln!(w, r#"<g clip-path="url(#clip_face_{})">"#, idx)?;
-
-                        // Draw transformed texture image
-                        // Note: Do NOT set width/height on <use> - the transform matrix
-                        // was calculated assuming the texture is at its full pixel dimensions
-                        // as defined in the <image> element in <defs>
-                        let (a, b, c, d, e, f) = (
-                            tex_matrix.x.x,
-                            tex_matrix.x.y,
-                            tex_matrix.y.x,
-                            tex_matrix.y.y,
-                            tex_matrix.z.x,
-                            tex_matrix.z.y,
-                        );
-                        writeln!(
-                            w,
-                            "<use href=\"#tex_{}\" transform=\"matrix({} {} {} {} {} {})\"/>",
-                            tex_idx, a, b, c, d, e, f
-                        )?;
-
-                        writeln!(w, r#"</g>"#)?;
                     }
                 }
             } else {
@@ -759,13 +792,9 @@ use lopdf::{
 };
 
 /// Calculate the transform matrix to map texture UV coordinates to face polygon vertices.
+/// Takes exactly 3 UV coordinates and 3 points (a triangle).
 /// Returns None if matrix is singular (degenerate triangle).
-fn calc_pdf_texture_matrix(uvs: &[Vector2], pts: &[Point2]) -> Option<Matrix3> {
-    if uvs.len() < 3 || pts.len() < 3 {
-        return None;
-    }
-
-    // Use first 3 vertices for affine transformation
+fn calc_pdf_texture_matrix_triangle(uvs: [Vector2; 3], pts: [Point2; 3]) -> Option<Matrix3> {
     // We want M such that M * uv_i = pt_i for i=0..2
     // Using homogeneous coordinates:
     // U = [uv0_x uv1_x uv2_x]
@@ -1059,79 +1088,105 @@ fn generate_pdf_page_ops(
                             .collect();
 
                         if uvs.len() >= 3 {
-                            // Convert vertices to points for matrix calculation
-                            let pts: Vec<_> =
-                                vertices.iter().map(|v| Point2::from_vec(*v)).collect();
+                            // Triangulate the face - each triangle gets its own transform
+                            let triangles = triangulate_polygon(vertices.len());
 
-                            // Calculate texture transform matrix
-                            if let Some(tex_matrix) = calc_pdf_texture_matrix(&uvs, &pts) {
-                                // Save graphics state
-                                ops.push(Operation::new("q", vec![]));
+                            for tri_indices in triangles.iter() {
+                                let tri_pts = [
+                                    Point2::from_vec(vertices[tri_indices[0]]),
+                                    Point2::from_vec(vertices[tri_indices[1]]),
+                                    Point2::from_vec(vertices[tri_indices[2]]),
+                                ];
+                                let tri_uvs = [
+                                    uvs[tri_indices[0]],
+                                    uvs[tri_indices[1]],
+                                    uvs[tri_indices[2]],
+                                ];
 
-                                // Create clipping path with face polygon
-                                let p0 = vertices[0];
-                                ops.push(Operation::new(
-                                    "m",
-                                    vec![mm_to_pt(p0.x).into(), pdf_y(p0.y).into()],
-                                ));
-                                for p in &vertices[1..] {
+                                // Calculate texture transform matrix for this triangle
+                                if let Some(tex_matrix) =
+                                    calc_pdf_texture_matrix_triangle(tri_uvs, tri_pts)
+                                {
+                                    // Save graphics state
+                                    ops.push(Operation::new("q", vec![]));
+
+                                    // Create clipping path with this triangle
+                                    ops.push(Operation::new(
+                                        "m",
+                                        vec![
+                                            mm_to_pt(tri_pts[0].x).into(),
+                                            pdf_y(tri_pts[0].y).into(),
+                                        ],
+                                    ));
                                     ops.push(Operation::new(
                                         "l",
-                                        vec![mm_to_pt(p.x).into(), pdf_y(p.y).into()],
+                                        vec![
+                                            mm_to_pt(tri_pts[1].x).into(),
+                                            pdf_y(tri_pts[1].y).into(),
+                                        ],
                                     ));
+                                    ops.push(Operation::new(
+                                        "l",
+                                        vec![
+                                            mm_to_pt(tri_pts[2].x).into(),
+                                            pdf_y(tri_pts[2].y).into(),
+                                        ],
+                                    ));
+                                    ops.push(Operation::new("h", vec![])); // Close path
+                                    ops.push(Operation::new("W", vec![])); // Set clipping path
+                                    ops.push(Operation::new("n", vec![])); // End path without filling
+
+                                    // The texture matrix maps UV pixel coords to paper coords (mm)
+                                    // PDF images render as 1x1 unit square, so we need to:
+                                    // 1. Scale by texture dimensions to get to pixel space
+                                    // 2. Apply the UV-to-paper transform (in mm)
+                                    // 3. Convert mm to points
+                                    // 4. Handle PDF Y-axis inversion (origin at bottom-left)
+                                    //
+                                    // Matrix elements a,b,c,d are in mm/pixel units
+                                    // Translation e,f are in mm
+                                    // We need to convert all to points
+
+                                    let a = tex_matrix.x.x;
+                                    let b = tex_matrix.x.y;
+                                    let c = tex_matrix.y.x;
+                                    let d = tex_matrix.y.y;
+                                    let e = tex_matrix.z.x;
+                                    let f = tex_matrix.z.y;
+
+                                    // Convert scale/rotation components from mm/pixel to pt/pixel
+                                    let mm_to_pt_scale = 72.0 / 25.4;
+                                    let a_pt = a * mm_to_pt_scale;
+                                    let b_pt = -b * mm_to_pt_scale; // Negate for Y-flip
+                                    let c_pt = c * mm_to_pt_scale;
+                                    let d_pt = -d * mm_to_pt_scale; // Negate for Y-flip
+                                    let e_pt = e * mm_to_pt_scale;
+                                    let f_pt = (page_size_mm.y - f) * mm_to_pt_scale;
+
+                                    // Apply UV-to-paper transformation matrix
+                                    ops.push(Operation::new(
+                                        "cm",
+                                        vec![
+                                            a_pt.into(),
+                                            b_pt.into(),
+                                            c_pt.into(),
+                                            d_pt.into(),
+                                            e_pt.into(),
+                                            f_pt.into(),
+                                        ],
+                                    ));
+
+                                    // Draw the texture image
+                                    ops.push(Operation::new(
+                                        "Do",
+                                        vec![Object::Name(
+                                            format!("Im{}", material_idx).into_bytes(),
+                                        )],
+                                    ));
+
+                                    // Restore graphics state
+                                    ops.push(Operation::new("Q", vec![]));
                                 }
-                                ops.push(Operation::new("h", vec![])); // Close path
-                                ops.push(Operation::new("W", vec![])); // Set clipping path
-                                ops.push(Operation::new("n", vec![])); // End path without filling
-
-                                // The texture matrix maps UV pixel coords to paper coords (mm)
-                                // PDF images render as 1x1 unit square, so we need to:
-                                // 1. Scale by texture dimensions to get to pixel space
-                                // 2. Apply the UV-to-paper transform (in mm)
-                                // 3. Convert mm to points
-                                // 4. Handle PDF Y-axis inversion (origin at bottom-left)
-                                //
-                                // Matrix elements a,b,c,d are in mm/pixel units
-                                // Translation e,f are in mm
-                                // We need to convert all to points
-
-                                let a = tex_matrix.x.x;
-                                let b = tex_matrix.x.y;
-                                let c = tex_matrix.y.x;
-                                let d = tex_matrix.y.y;
-                                let e = tex_matrix.z.x;
-                                let f = tex_matrix.z.y;
-
-                                // Convert scale/rotation components from mm/pixel to pt/pixel
-                                let mm_to_pt_scale = 72.0 / 25.4;
-                                let a_pt = a * mm_to_pt_scale;
-                                let b_pt = -b * mm_to_pt_scale; // Negate for Y-flip
-                                let c_pt = c * mm_to_pt_scale;
-                                let d_pt = -d * mm_to_pt_scale; // Negate for Y-flip
-                                let e_pt = e * mm_to_pt_scale;
-                                let f_pt = (page_size_mm.y - f) * mm_to_pt_scale;
-
-                                // Apply UV-to-paper transformation matrix
-                                ops.push(Operation::new(
-                                    "cm",
-                                    vec![
-                                        a_pt.into(),
-                                        b_pt.into(),
-                                        c_pt.into(),
-                                        d_pt.into(),
-                                        e_pt.into(),
-                                        f_pt.into(),
-                                    ],
-                                ));
-
-                                // Draw the texture image
-                                ops.push(Operation::new(
-                                    "Do",
-                                    vec![Object::Name(format!("Im{}", material_idx).into_bytes())],
-                                ));
-
-                                // Restore graphics state
-                                ops.push(Operation::new("Q", vec![]));
                             }
                         }
                     }
