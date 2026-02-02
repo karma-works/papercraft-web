@@ -2,7 +2,7 @@ use axum::{
     routing::{get, post},
     Router,
     Json,
-    extract::{Query, State, Multipart, DefaultBodyLimit},
+    extract::{Query, State, Multipart, DefaultBodyLimit, Path},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -188,10 +188,31 @@ async fn perform_action(
     }
 }
 
+async fn get_texture(
+    State(state): State<Arc<Mutex<AppState>>>,
+    Path(index): Path<usize>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let state = state.lock().unwrap();
+    let project = state.project.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    
+    let texture = project.model().textures().nth(index).ok_or(StatusCode::NOT_FOUND)?;
+    let pixbuf = texture.pixbuf().ok_or(StatusCode::NOT_FOUND)?;
+    
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    pixbuf.write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "image/png")],
+        buffer.into_inner(),
+    ))
+}
+
 #[derive(Deserialize)]
 struct ExportParams {
     format: String,  // "svg" or "pdf"
     page: Option<u32>,  // For SVG: specific page, None = all pages
+    textures: Option<bool>,  // Whether to include textures in export
 }
 
 async fn export_file(
@@ -201,12 +222,14 @@ async fn export_file(
     let state = state.lock().unwrap();
     let project = state.project.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     
+    let with_textures = params.textures.unwrap_or(false);
+    
     match params.format.as_str() {
         "svg" => {
             let svg = if let Some(page) = params.page {
-                vector_export::generate_svg(project, page)
+                vector_export::generate_svg(project, page, with_textures)
             } else {
-                vector_export::generate_svg_multipage(project)
+                vector_export::generate_svg_multipage(project, with_textures)
             };
             
             match svg {
@@ -221,7 +244,7 @@ async fn export_file(
             }
         }
         "pdf" => {
-            match vector_export::generate_pdf(project) {
+            match vector_export::generate_pdf(project, with_textures) {
                 Ok(pdf_bytes) => Ok((
                     [(axum::http::header::CONTENT_TYPE, "application/pdf")],
                     pdf_bytes,
@@ -289,6 +312,7 @@ async fn serve(port: u16) {
         .route("/api/project", get(get_project))
         .route("/api/action", post(perform_action))
         .route("/api/export", get(export_file))
+        .route("/api/texture/:index", get(get_texture))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB
         .layer(CorsLayer::permissive())
         .with_state(state);

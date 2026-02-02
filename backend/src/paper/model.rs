@@ -12,11 +12,24 @@ use super::{BodyTraverse, EdgeStatus, Island, PaperOptions, traverse_faces_ex};
 
 pub mod import;
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct Texture {
     file_name: String,
     #[serde(skip)]
     pixbuf: Option<DynamicImage>,
+}
+
+impl Serialize for Texture {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("Texture", 2)?;
+        state.serialize_field("file_name", &self.file_name)?;
+        state.serialize_field("has_data", &self.pixbuf.is_some())?;
+        state.end()
+    }
 }
 
 impl Texture {

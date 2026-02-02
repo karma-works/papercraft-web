@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, FileTrigger, ToggleButton } from 'react-aria-components';
 import {
   Upload, Scissors, Link2, Move, RotateCw, Settings,
   ZoomIn, ZoomOut, Maximize2, Box, Origami,
-  MousePointer2, Hand, Undo2, Redo2, HelpCircle, LayoutGrid
+  MousePointer2, Hand, Undo2, Redo2, HelpCircle, LayoutGrid, Save, FolderOpen, Download, Image as ImageIcon
 } from 'lucide-react';
 import * as api from './api/client';
 import Preview3D from './Preview3D';
@@ -66,7 +66,7 @@ function FileUpload({ onUpload, isLoading, compact = false }: { onUpload: (file:
 
   return (
     <div
-      className={`file-upload ${isDragOver ? 'drag-over' : ''}`}
+      className={`file - upload ${isDragOver ? 'drag-over' : ''} `}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -138,14 +138,51 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onAction: (type: string, data: any) => void;
+  onSave: () => void;
+  onSaveAs: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  canSave: boolean;
 }
 
 // Toolbar Component
-function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSettings, onExport, onUndo, onRedo, onAction, canUndo, canRedo }: ToolbarProps) {
+function Toolbar({
+  mode,
+  onModeChange,
+  viewOptions,
+  onViewOptionChange,
+  onOpenSettings,
+  onExport,
+  onUndo,
+  onRedo,
+  onAction,
+  onSave,
+  onSaveAs,
+  canUndo,
+  canRedo,
+  canSave
+}: ToolbarProps) {
   return (
     <div className="toolbar">
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn"
+          onClick={onSave}
+          disabled={!canSave}
+          title="Save (Ctrl+S)"
+          data-testid="save-btn"
+        >
+          <Save size={18} style={{ opacity: canSave ? 1 : 0.3 }} />
+        </button>
+        <button
+          className="toolbar-btn"
+          onClick={onSaveAs}
+          title="Save As..."
+          data-testid="save-as-btn"
+        >
+          <Download size={18} />
+        </button>
+      </div>
       <div className="toolbar-group">
         <button
           className="toolbar-btn"
@@ -220,16 +257,27 @@ function Toolbar({ mode, onModeChange, viewOptions, onViewOptionChange, onOpenSe
           <Link2 size={18} />
         </button>
       </div>
-      <div className="toolbar-group" title="Toggle Flaps (F)">
-        <ToggleButton
-          className={`toolbar-btn ${viewOptions.showFlaps ? 'active' : ''}`}
-          isSelected={viewOptions.showFlaps}
-          onChange={() => onViewOptionChange('showFlaps', !viewOptions.showFlaps)}
-          aria-label="Toggle Flaps"
-          data-testid="toggle-flaps-btn"
-        >
-          <span style={{ fontSize: '12px', fontWeight: 'bold' }}>F</span>
-        </ToggleButton>
+      <div className="toolbar-group">
+        <div title="Toggle Flaps (F)">
+          <ToggleButton
+            className={`toolbar-btn ${viewOptions.showFlaps ? 'active' : ''}`}
+            isSelected={viewOptions.showFlaps}
+            onChange={() => onViewOptionChange('showFlaps', !viewOptions.showFlaps)}
+            data-testid="toggle-flaps-btn"
+          >
+            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>F</span>
+          </ToggleButton>
+        </div>
+        <div title="Show Textures (T)">
+          <ToggleButton
+            className={`toolbar-btn ${viewOptions.showTextures ? 'active' : ''}`}
+            isSelected={viewOptions.showTextures}
+            onChange={() => onViewOptionChange('showTextures', !viewOptions.showTextures)}
+            data-testid="toggle-textures-btn"
+          >
+            <ImageIcon size={18} />
+          </ToggleButton>
+        </div>
       </div>
       <div className="toolbar-group">
         <button
@@ -312,6 +360,25 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [redrawKey, setRedrawKey] = useState(0);
+  const [textures, setTextures] = useState<(HTMLImageElement | null)[]>([]);
+
+  // Load textures - only load textures that have actual data
+  useEffect(() => {
+    if (project?.model?.textures) {
+      const loaded: (HTMLImageElement | null)[] = project.model.textures.map((tex, i) => {
+        if (!tex.has_data) {
+          return null; // No data for this texture
+        }
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = `http://localhost:3000/api/texture/${i}`;
+        img.onload = () => setRedrawKey(k => k + 1);
+        img.onerror = () => console.error(`Failed to load texture ${i}`);
+        return img;
+      });
+      setTextures(loaded);
+    }
+  }, [project?.model?.textures]);
 
   // Force redraw when project changes
   useEffect(() => {
@@ -397,6 +464,54 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
     t = Math.max(0, Math.min(1, t));
     return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2;
+  };
+
+  const drawTexturedTriangle = (
+    ctx: CanvasRenderingContext2D,
+    img: HTMLImageElement,
+    p0: { x: number, y: number }, p1: { x: number, y: number }, p2: { x: number, y: number },
+    t0: { u: number, v: number }, t1: { u: number, v: number }, t2: { u: number, v: number }
+  ) => {
+    if (!img.complete || img.naturalWidth === 0) return;
+
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+
+    // Normalize UVs to [0, 1] range (handle wrapping like THREE.RepeatWrapping)
+    const wrapUV = (uv: number) => {
+      const wrapped = uv % 1;
+      return wrapped < 0 ? wrapped + 1 : wrapped;
+    };
+
+    const u0 = wrapUV(t0.u) * w, v0 = wrapUV(t0.v) * h;
+    const u1 = wrapUV(t1.u) * w, v1 = wrapUV(t1.v) * h;
+    const u2 = wrapUV(t2.u) * w, v2 = wrapUV(t2.v) * h;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.closePath();
+    ctx.clip();
+
+    const det = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
+    if (Math.abs(det) < 1e-6) {
+      ctx.restore();
+      return;
+    }
+
+    const idet = 1 / det;
+    const a = ((v2 - v0) * (p1.x - p0.x) - (v1 - v0) * (p2.x - p0.x)) * idet;
+    const b = ((v2 - v0) * (p1.y - p0.y) - (v1 - v0) * (p2.y - p0.y)) * idet;
+    const c = ((u0 - u2) * (p1.x - p0.x) + (u1 - u0) * (p2.x - p0.x)) * idet;
+    const d = ((u0 - u2) * (p1.y - p0.y) + (u1 - u0) * (p2.y - p0.y)) * idet;
+    const e = p0.x - a * u0 - c * v0;
+    const f = p0.y - b * u0 - d * v0;
+
+    ctx.transform(a, b, c, d, e, f);
+    ctx.drawImage(img, 0, 0);
+    ctx.restore();
   };
 
   const hitTestEdge = useCallback((x: number, y: number): { islandId: IslandId; edgeId: any; edge: any; island: any } | null => {
@@ -739,8 +854,8 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
     const rect = container.getBoundingClientRect();
     canvas.width = rect.width * window.devicePixelRatio;
     canvas.height = rect.height * window.devicePixelRatio;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+    canvas.style.width = `${rect.width} px`;
+    canvas.style.height = `${rect.height} px`;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -797,7 +912,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
       ctx.fillStyle = '#8e8e93';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`Page ${p + 1}`, px + 5, py + 15);
+      ctx.fillText(`Page ${p + 1} `, px + 5, py + 15);
 
       // Draw margins
       if (options?.margin) {
@@ -825,7 +940,7 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
       const islandIdx = island.id?.idx ?? (island as any).idx ?? index;
       const isSelected = selectedIslands.includes(islandIdx);
       const isHovered = hoveredIsland === islandIdx;
-      const isDragged = draggedIsland?.id?.idx === islandIdx || draggedIsland?.id === islandIdx;
+      const isDragged = draggedIsland?.id?.idx === islandIdx;
 
       // Extract pos and rot
       const { x: ix, y: iy } = getPoint(island.pos);
@@ -887,8 +1002,43 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
 
       // Draw Faces
       if (island.faces) {
-        island.faces.forEach(face => {
+        island.faces.forEach((face) => {
           if (!face.vertices || face.vertices.length < 3) return;
+
+          const texture = textures[face.m];
+          const showTexturesForFace = viewOptions.showTextures && texture && texture.complete && texture.naturalWidth > 0;
+
+
+
+          if (showTexturesForFace) {
+            const img = texture;
+            const indices = face.vs; // Indices into project.model.vs
+            if (project.model && indices && indices.length >= 3) {
+              for (let i = 1; i < indices.length - 1; i++) {
+                const v0 = project.model.vs[indices[0]];
+                const v1 = project.model.vs[indices[i]];
+                const v2 = project.model.vs[indices[i + 1]];
+
+                if (!v0 || !v1 || !v2) continue;
+
+                // Get 2D positions from face.vertices (already in model mm units from backend)
+                const p0 = getPoint(face.vertices[0]);
+                const p1 = getPoint(face.vertices[i]);
+                const p2 = getPoint(face.vertices[i + 1]);
+
+
+
+                // Flip V coordinate: PDO uses different UV convention
+                drawTexturedTriangle(
+                  ctx, img,
+                  p0, p1, p2,
+                  { u: v0.t[0], v: 1.0 - v0.t[1] },
+                  { u: v1.t[0], v: 1.0 - v1.t[1] },
+                  { u: v2.t[0], v: 1.0 - v2.t[1] }
+                );
+              }
+            }
+          }
 
           ctx.beginPath();
           face.vertices.forEach((v, i) => {
@@ -899,8 +1049,11 @@ function Canvas2D({ project, mode, viewOptions, selectedIslands, onSelectIsland,
           ctx.closePath();
 
           // Style
-          ctx.fillStyle = isSelected ? '#e0e7ff' : (isHovered ? '#f3f4f6' : '#ffffff');
-          ctx.fill();
+          if (!showTexturesForFace) {
+            ctx.fillStyle = isSelected ? '#e0e7ff' : (isHovered ? '#f3f4f6' : '#ffffff');
+            ctx.fill();
+          }
+
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = 0.5 / scale; // constant pixel width approx
           ctx.stroke();
@@ -1070,7 +1223,7 @@ export default function App() {
   const [selectedIslands, setSelectedIslands] = useState<number[]>([]);
   const [viewOptions, setViewOptions] = useState({
     showFlaps: true,
-    showTextures: false,
+    showTextures: true,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1078,6 +1231,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isResizing, setIsResizing] = useState(false);
+  const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
   // Handle file upload
@@ -1116,6 +1270,91 @@ export default function App() {
       setUploadProgress(0);
     }
   }, [resetProject]);
+
+  // Handle Open Local File
+  const handleOpenFile = useCallback(async () => {
+    try {
+      // @ts-ignore - File System Access API
+      const [handle] = await window.showOpenFilePicker({
+        types: [
+          {
+            description: 'Craft Projects',
+            accept: { 'application/x-craft': ['.craft'] }
+          },
+          {
+            description: '3D Models & Papercraft',
+            accept: {
+              'application/octet-stream': ['.pdo', '.pbo', '.obj']
+            }
+          }
+        ]
+      });
+
+      const file = await handle.getFile();
+      if (file.name.endsWith('.craft')) {
+        const text = await file.text();
+        const projectData = JSON.parse(text);
+        resetProject(projectData);
+        setFileHandle(handle);
+        setStatus({ connected: true, hasModel: true });
+        setSelectedIslands([]);
+        setMode('select');
+      } else {
+        await handleUpload(file);
+        setFileHandle(null); // Not a .craft file yet
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.error("Open file failed:", err);
+      setError('Failed to open file: ' + err.message);
+    }
+  }, [handleUpload, resetProject]);
+
+  // Handle Save
+  const handleSaveFile = useCallback(async () => {
+    if (!project) return;
+    if (!fileHandle) {
+      await handleSaveAs();
+      return;
+    }
+
+    try {
+      // @ts-ignore - File System Access API
+      const writable = await fileHandle.createWritable();
+      await writable.write(JSON.stringify(project, null, 2));
+      await writable.close();
+      console.log("Saved successfully to", fileHandle.name);
+    } catch (err: any) {
+      console.error("Save failed:", err);
+      setError('Failed to save file: ' + err.message);
+    }
+  }, [project, fileHandle]);
+
+  // Handle Save As
+  const handleSaveAs = useCallback(async () => {
+    if (!project) return;
+    try {
+      // @ts-ignore - File System Access API
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'project.craft',
+        types: [{
+          description: 'Craft Project',
+          accept: { 'application/x-craft': ['.craft'] },
+        }],
+      });
+
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(project, null, 2));
+      await writable.close();
+
+      setFileHandle(handle);
+      console.log("Saved as", handle.name);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.error("Save As failed:", err);
+      setError('Failed to save file: ' + err.message);
+    }
+  }, [project]);
 
   // Expose loadModel to window for easier testing
   useEffect(() => {
@@ -1275,6 +1514,12 @@ export default function App() {
         case 'r': setMode('rotate'); break;
         case 'c': setMode('cut'); break;
         case 'j': setMode('join'); break;
+        case 's':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            handleSaveFile();
+          }
+          break;
         case 'escape': setSelectedIslands([]); break;
       }
     };
@@ -1296,7 +1541,8 @@ export default function App() {
 
   // Handle export
   const handleExport = (format: string) => {
-    window.open(`http://localhost:3000/api/export?format=${format}`, '_blank');
+    const textureParam = viewOptions.showTextures ? '&textures=true' : '&textures=false';
+    window.open(`http://localhost:3000/api/export?format=${format}${textureParam}`, '_blank');
   };
 
   return (
@@ -1306,7 +1552,18 @@ export default function App() {
           <span className="app-logo"><Origami size={24} /></span>
           Papercraft Web
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            className="toolbar-btn"
+            onClick={handleOpenFile}
+            title="Open Local File"
+            data-testid="open-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.8rem' }}
+          >
+            <FolderOpen size={18} />
+            <span style={{ fontSize: '14px', fontWeight: '500' }}>Open</span>
+          </button>
+          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)', margin: '0 0.25rem' }} />
           <FileUpload onUpload={handleUpload} isLoading={isLoading} compact />
           <StatusIndicator connected={status.connected} hasModel={status.hasModel} />
         </div>
@@ -1340,8 +1597,11 @@ export default function App() {
             onUndo={undo}
             onRedo={redo}
             onAction={performAction}
+            onSave={handleSaveFile}
+            onSaveAs={handleSaveAs}
             canUndo={canUndo}
             canRedo={canRedo}
+            canSave={!!project}
           />
         </div>
 
@@ -1359,7 +1619,7 @@ export default function App() {
                 style={window.innerWidth >= 768 ? { flex: splitRatio, minWidth: 0 } : {}}
               >
                 <div className="preview-3d-container">
-                  <Preview3D project={project} />
+                  <Preview3D project={project} showTextures={viewOptions.showTextures} />
                 </div>
                 <div className="pane-label">3D Preview</div>
               </div>

@@ -30,6 +30,8 @@ pub struct RenderableIsland {
 pub struct RenderableFace {
     pub id: crate::paper::FaceIndex,
     pub vertices: Vec<Vector2>,
+    pub m: u32, // Material index for texture lookup
+    pub vs: Vec<u32>, // Vertex indices for UV coordinate lookup
 }
 
 #[derive(Serialize)]

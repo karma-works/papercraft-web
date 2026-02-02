@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Button, Dialog, DialogTrigger, Heading, Modal, Label, Input, Checkbox } from 'react-aria-components';
+import { Button, Dialog, DialogTrigger, Heading, Modal, Label, Input } from 'react-aria-components';
 import { X } from 'lucide-react';
 import { SettingsOptions } from './types';
 
@@ -121,21 +121,29 @@ export default function SettingsDialog({ options, onSave, isOpen, onOpenChange }
                         </div>
 
                         <div className="form-section">
-                            <h3>Appearance</h3>
-                            <div className="form-group checkbox-group">
-                                <Checkbox isSelected={formData.texture} onChange={v => handleChange('texture', v)}>
-                                    <div className="checkbox">
-                                        <svg viewBox="0 0 18 18" aria-hidden="true">
-                                            <polyline points="1 9 7 14 15 4" />
-                                        </svg>
-                                    </div>
-                                    Show Textures
-                                </Checkbox>
+                            <h3>Textures & Flaps</h3>
+                            <div className="form-group">
+                                <Label>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.texture}
+                                        onChange={e => handleChange('texture', e.target.checked)}
+                                    /> Enable Textures
+                                </Label>
                             </div>
-                        </div>
-
-                        <div className="form-section">
-                            <h3>Flaps</h3>
+                            <div className="form-group">
+                                <Label>Flap Style</Label>
+                                <select
+                                    value={formData.tab_style || 'HalfTextured'}
+                                    onChange={e => handleChange('tab_style', e.target.value)}
+                                    className="form-select"
+                                >
+                                    <option value="Textured">Textured (full texture)</option>
+                                    <option value="HalfTextured">Half Textured (50% texture)</option>
+                                    <option value="White">White (no texture)</option>
+                                    <option value="None">None (no flaps)</option>
+                                </select>
+                            </div>
                             <div className="form-row">
                                 <div className="form-group">
                                     <Label>Width (mm)</Label>
