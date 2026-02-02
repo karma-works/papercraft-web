@@ -5,9 +5,8 @@ pub use importer::PepakuraImporter;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::path::Path;
     use crate::paper::import::import_model_file;
+    use std::path::Path;
 
     #[test]
     fn test_load_sports_car() {
