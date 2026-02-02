@@ -189,3 +189,4 @@ GET /api/export?format=pdf&textures=true
 
 - `TEXTURE_EXPORT_ANALYSIS.md` - Full analysis in project root
 - `references/implementation.md` - Detailed algorithm explanations
+- `references/fundamentals.md` - fundamentals of the pdo format
