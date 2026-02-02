@@ -375,11 +375,25 @@ mod tests {
             "PDF should contain Image XObject definitions"
         );
 
-        // Check for image reference in content stream (Do operator)
-        let has_do_operator = pdf_str.contains("/Im0 Do") || pdf_str.contains("/Im1 Do");
+        // Check for image reference in pattern content stream (Do operator)
+        // Since we now use Patterns, the Do operator appears inside the Pattern stream
+        let has_do_operator = pdf_str.contains("/Im Do") || pdf_str.contains("/Im0 Do");
         assert!(
             has_do_operator,
-            "PDF should reference textures with Do operator in content stream"
+            "PDF should reference textures with Do operator (inside Pattern)"
+        );
+
+        // Check for Pattern usage in page content
+        let has_pattern_cs = pdf_str.contains("/Pattern cs");
+        assert!(
+            has_pattern_cs,
+            "PDF page content should use Pattern color space"
+        );
+
+        let has_pattern_scn = pdf_str.contains("/Pat0 scn") || pdf_str.contains("/Pat1 scn");
+        assert!(
+            has_pattern_scn,
+            "PDF page content should set pattern color (scn)"
         );
     }
 
